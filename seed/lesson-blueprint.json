@@ -1,0 +1,446 @@
+{
+  "book": {
+    "title": "大学物理：牛顿第二定律实验课",
+    "subtitle": "从纸面概念到可操作、可反馈的数字学习",
+    "description": "用于展示富文本、富媒体、仿真实验、学练测和教学数据闭环的完整数字教材样章。",
+    "coverAsset": "images/cover.png"
+  },
+  "assets": [
+    {
+      "key": "cover",
+      "kind": "IMAGE",
+      "path": "images/cover.png",
+      "title": "教材封面"
+    },
+    {
+      "key": "forceDiagram",
+      "kind": "IMAGE",
+      "path": "images/force-diagram.png",
+      "title": "小车受力示意图"
+    },
+    {
+      "key": "gallery1",
+      "kind": "IMAGE",
+      "path": "images/gallery-force-1.png",
+      "title": "实验准备"
+    },
+    {
+      "key": "gallery2",
+      "kind": "IMAGE",
+      "path": "images/gallery-force-2.png",
+      "title": "施加合力"
+    },
+    {
+      "key": "gallery3",
+      "kind": "IMAGE",
+      "path": "images/gallery-force-3.png",
+      "title": "采集数据"
+    },
+    {
+      "key": "panorama",
+      "kind": "PANORAMA",
+      "path": "images/physics-lab-panorama.jpg",
+      "title": "360° 物理实验室"
+    },
+    {
+      "key": "narration",
+      "kind": "AUDIO",
+      "path": "audio/newton-narration.wav",
+      "title": "牛顿第二定律音频讲解"
+    },
+    {
+      "key": "video",
+      "kind": "VIDEO",
+      "path": "video/cart-experiment.mp4",
+      "title": "小车受力实验动画",
+      "captions": "video/cart-experiment.vtt"
+    },
+    {
+      "key": "cart3d",
+      "kind": "MODEL3D",
+      "path": "models/force-cart.glb",
+      "title": "可交互 3D 小车"
+    },
+    {
+      "key": "guide",
+      "kind": "PDF",
+      "path": "attachments/newton-experiment-guide.pdf",
+      "title": "牛顿第二定律实验指导书"
+    },
+    {
+      "key": "docx",
+      "kind": "DOCUMENT",
+      "path": "imports/sample-physics.docx",
+      "title": "DOCX 导入测试教材"
+    }
+  ],
+  "chapters": [
+    {
+      "id": "chapter-observe",
+      "title": "第一章 从纸面概念到多媒体观察",
+      "nodes": [
+        {
+          "type": "heading",
+          "level": 1,
+          "text": "牛顿第二定律：力如何改变运动"
+        },
+        {
+          "type": "richText",
+          "html": "<p><strong>牛顿第二定律</strong>描述合力、质量与加速度之间的定量关系。正文中“惯性”一词应配置为行内知识气泡。</p><p>当质量保持不变时，加速度与合力成正比；当合力保持不变时，加速度与质量成反比。</p>"
+        },
+        {
+          "type": "callout",
+          "tone": "key",
+          "title": "数字化学习目标",
+          "body": "不仅记住 F=ma，还要通过媒体观察、模型操作和仿真实验验证它。"
+        },
+        {
+          "type": "imageInteractive",
+          "asset": "forceDiagram",
+          "caption": "点击热点查看小车所受力",
+          "hotspots": [
+            {
+              "x": 76,
+              "y": 45,
+              "title": "水平拉力 F",
+              "body": "拉力方向与小车加速度方向一致。"
+            },
+            {
+              "x": 50,
+              "y": 29,
+              "title": "支持力 N",
+              "body": "竖直方向上支持力与重力平衡。"
+            },
+            {
+              "x": 50,
+              "y": 73,
+              "title": "重力 mg",
+              "body": "重力大小由质量决定。"
+            }
+          ]
+        },
+        {
+          "type": "gallery",
+          "assets": [
+            "gallery1",
+            "gallery2",
+            "gallery3"
+          ],
+          "captions": [
+            "连接小车和传感器",
+            "改变合力或质量",
+            "采集并比较运动数据"
+          ]
+        },
+        {
+          "type": "audio",
+          "asset": "narration",
+          "transcript": "牛顿第二定律指出，物体的加速度与所受合力成正比，与质量成反比。拖动后续实验中的滑块，观察小车运动和图表如何同步变化。",
+          "chapters": [
+            {
+              "time": 0,
+              "label": "定律表述"
+            },
+            {
+              "time": 5,
+              "label": "如何验证"
+            }
+          ]
+        },
+        {
+          "type": "video",
+          "asset": "video",
+          "captionAsset": "video/cart-experiment.vtt",
+          "transcript": [
+            {
+              "time": 0,
+              "text": "保持质量不变，观察合力增大时的运动。"
+            },
+            {
+              "time": 3,
+              "text": "合力从 2N 增大到 6N，加速度明显增大。"
+            },
+            {
+              "time": 6,
+              "text": "保持合力不变，质量增大，加速度减小。"
+            }
+          ]
+        },
+        {
+          "type": "extendedReading",
+          "title": "为什么安全带能保护乘客？",
+          "summary": "从惯性与冲量角度理解安全带。",
+          "body": "车辆突然制动时，乘客身体仍倾向保持原运动状态。安全带延长作用时间并限制位移，从而降低伤害风险。"
+        }
+      ]
+    },
+    {
+      "id": "chapter-operate",
+      "title": "第二章 把公式变成可操作实验",
+      "nodes": [
+        {
+          "type": "heading",
+          "level": 1,
+          "text": "F = ma 交互实验室"
+        },
+        {
+          "type": "formulaBlock",
+          "latex": "\\vec{F}=m\\vec{a}",
+          "number": "2-1",
+          "caption": "牛顿第二定律"
+        },
+        {
+          "type": "formulaBlock",
+          "latex": "a=\\frac{F}{m}=\\frac{6\\,\\mathrm{N}}{2\\,\\mathrm{kg}}=3\\,\\mathrm{m/s^2}",
+          "number": "2-2",
+          "caption": "参数代入示例",
+          "parameterDemo": {
+            "force": 6,
+            "mass": 2
+          }
+        },
+        {
+          "type": "model3d",
+          "asset": "cart3d",
+          "title": "3D 小车与受力方向",
+          "autoRotate": true,
+          "hotspots": [
+            {
+              "position": "0m 0.55m 0m",
+              "title": "小车质量",
+              "body": "增加质量会减小相同合力下的加速度。"
+            },
+            {
+              "position": "1.15m 0.35m 0m",
+              "title": "合力方向",
+              "body": "合力决定加速度方向。"
+            }
+          ]
+        },
+        {
+          "type": "panorama",
+          "asset": "panorama",
+          "title": "360° 实验室",
+          "initialYaw": 0,
+          "initialPitch": 0,
+          "hotspots": [
+            {
+              "yaw": -35,
+              "pitch": -5,
+              "title": "力传感器",
+              "body": "测量小车受到的水平拉力。"
+            },
+            {
+              "yaw": 40,
+              "pitch": -8,
+              "title": "运动传感器",
+              "body": "记录位置和速度随时间变化。"
+            }
+          ]
+        },
+        {
+          "type": "physicsSimulation",
+          "title": "改变力和质量，观察加速度",
+          "force": {
+            "min": 1,
+            "max": 10,
+            "step": 1,
+            "default": 6
+          },
+          "mass": {
+            "min": 1,
+            "max": 5,
+            "step": 0.5,
+            "default": 2
+          },
+          "showTrajectory": true,
+          "showFormula": true,
+          "prompt": "先固定质量改变力，再固定力改变质量。保存至少两组结果并比较。"
+        },
+        {
+          "type": "chart",
+          "chartType": "line",
+          "title": "质量为 2kg 时，合力与加速度",
+          "items": [
+            {
+              "label": "2N",
+              "value": 1
+            },
+            {
+              "label": "4N",
+              "value": 2
+            },
+            {
+              "label": "6N",
+              "value": 3
+            },
+            {
+              "label": "8N",
+              "value": 4
+            }
+          ],
+          "xLabel": "合力",
+          "yLabel": "加速度 m/s²",
+          "showLegend": true
+        },
+        {
+          "type": "callout",
+          "tone": "experiment",
+          "title": "观察结论",
+          "body": "图像斜率为 1/m。质量越大，F-a 图像斜率越小。"
+        }
+      ]
+    },
+    {
+      "id": "chapter-practice",
+      "title": "第三章 学、练、测、表达一体化",
+      "nodes": [
+        {
+          "type": "heading",
+          "level": 1,
+          "text": "用交互反馈检验理解"
+        },
+        {
+          "type": "quizSet",
+          "title": "牛顿第二定律随堂练习",
+          "questions": [
+            {
+              "id": "q1",
+              "type": "single",
+              "question": "质量 2kg 的物体受到 6N 合力，加速度是多少？",
+              "options": [
+                "1 m/s²",
+                "2 m/s²",
+                "3 m/s²",
+                "12 m/s²"
+              ],
+              "correct": [
+                2
+              ],
+              "explanation": "a=F/m=6/2=3 m/s²。",
+              "score": 25
+            },
+            {
+              "id": "q2",
+              "type": "multiple",
+              "question": "在质量不变时，增大合力会导致哪些变化？",
+              "options": [
+                "加速度增大",
+                "加速度方向与合力一致",
+                "质量自动增大",
+                "F-a 关系仍为线性"
+              ],
+              "correct": [
+                0,
+                1,
+                3
+              ],
+              "explanation": "质量不变时 a 与 F 成正比。",
+              "score": 25
+            },
+            {
+              "id": "q3",
+              "type": "boolean",
+              "question": "物体速度为零时，它受到的合力一定为零。",
+              "correct": false,
+              "explanation": "某一时刻速度为零不代表加速度为零。",
+              "score": 25
+            },
+            {
+              "id": "q4",
+              "type": "fill",
+              "question": "合力 10N、质量 4kg，加速度为 ____ m/s²。",
+              "acceptedAnswers": [
+                "2.5",
+                "2.50"
+              ],
+              "explanation": "a=10/4=2.5 m/s²。",
+              "score": 25
+            }
+          ]
+        },
+        {
+          "type": "recordingTask",
+          "title": "一分钟概念表达",
+          "prompt": "不用照读公式，用自己的话解释为什么相同合力对质量更小的物体产生更大加速度。",
+          "recommendedSeconds": 60
+        },
+        {
+          "type": "attachment",
+          "asset": "guide",
+          "title": "牛顿第二定律实验指导书",
+          "preview": true
+        },
+        {
+          "type": "knowledgeGraph",
+          "title": "本章知识关系",
+          "nodes": [
+            {
+              "id": "force",
+              "type": "concept",
+              "label": "合力 F",
+              "target": "chapter-operate"
+            },
+            {
+              "id": "mass",
+              "type": "concept",
+              "label": "质量 m",
+              "target": "chapter-operate"
+            },
+            {
+              "id": "acceleration",
+              "type": "concept",
+              "label": "加速度 a",
+              "target": "chapter-operate"
+            },
+            {
+              "id": "law",
+              "type": "formula",
+              "label": "F=ma",
+              "target": "chapter-operate"
+            },
+            {
+              "id": "simulation",
+              "type": "experiment",
+              "label": "小车仿真",
+              "target": "chapter-operate"
+            },
+            {
+              "id": "quiz",
+              "type": "quiz",
+              "label": "随堂练习",
+              "target": "chapter-practice"
+            }
+          ],
+          "edges": [
+            {
+              "source": "force",
+              "target": "law",
+              "label": "决定"
+            },
+            {
+              "source": "mass",
+              "target": "law",
+              "label": "约束"
+            },
+            {
+              "source": "law",
+              "target": "acceleration",
+              "label": "计算"
+            },
+            {
+              "source": "simulation",
+              "target": "law",
+              "label": "验证"
+            },
+            {
+              "source": "quiz",
+              "target": "law",
+              "label": "检测"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

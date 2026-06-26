@@ -1,0 +1,54 @@
+[
+  {
+    "path": "README.md",
+    "bytes": 768
+  },
+  {
+    "path": "attachments/newton-experiment-guide.pdf",
+    "bytes": 4035
+  },
+  {
+    "path": "audio/newton-narration.wav",
+    "bytes": 825838
+  },
+  {
+    "path": "images/cover.png",
+    "bytes": 62615
+  },
+  {
+    "path": "images/force-diagram.png",
+    "bytes": 22458
+  },
+  {
+    "path": "images/gallery-force-1.png",
+    "bytes": 19643
+  },
+  {
+    "path": "images/gallery-force-2.png",
+    "bytes": 19587
+  },
+  {
+    "path": "images/gallery-force-3.png",
+    "bytes": 21924
+  },
+  {
+    "path": "images/physics-lab-panorama.jpg",
+    "bytes": 106708
+  },
+  {
+    "path": "imports/sample-physics.docx",
+    "bytes": 57630
+  },
+  {
+    "path": "models/force-cart.glb",
+    "bytes": 13296
+  },
+  {
+    "path": "video/cart-experiment.mp4",
+    "bytes": 57550
+  },
+  {
+    "path": "video/cart-experiment.vtt",
+    "bytes": 276
+  }
+]
