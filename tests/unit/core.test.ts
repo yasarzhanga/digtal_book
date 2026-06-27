@@ -17,7 +17,7 @@ import {
 } from "@/server/auth/guards";
 import { demoLogin, type PublicUser } from "@/server/services/auth";
 import { getEditorBook, importDocxUpload, publishBook, saveChapterDocument } from "@/server/services/books";
-import { ensureAssetReadable } from "@/server/services/assets";
+import { ensureAssetBelongsToBookOrClassroom, ensureAssetReadable } from "@/server/services/assets";
 import { getCurrentSnapshot } from "@/server/services/books";
 import { auditNoUnsupportedEventTypes, getPersonalReport, mediaCompletionRateForPrefix, saveExperiment, searchBook, submitQuiz, upsertReadingState } from "@/server/services/reader";
 import {
@@ -79,7 +79,7 @@ import {
   gradeAssignmentSubmission,
   listAssignmentSubmissions
 } from "@/server/services/p1";
-import { recordEvent } from "@/server/services/events";
+import { recordTrustedInternalEvent } from "@/server/services/events";
 import { collectAssetIdsFromDocument } from "@/content-engine/utils/assets";
 import { applyAnnotationMarksToHtml } from "@/content-engine/utils/annotations";
 import { buildPieSlices } from "@/content-engine/utils/chart";
@@ -234,10 +234,10 @@ describe("learning interactions", () => {
       lastNodeId: "chapter-observe-1-richText",
       activeSecondsDelta: 0
     });
-    recordEvent("user_student_8", { bookVersionId: snapshot.versionId, eventType: "AUDIO_PROGRESS", nodeId: "audio_unit", progress: 0.25 });
-    recordEvent("user_student_8", { bookVersionId: snapshot.versionId, eventType: "AUDIO_PROGRESS", nodeId: "audio_unit", progress: 0.8 });
-    recordEvent("user_student_8", { bookVersionId: snapshot.versionId, eventType: "VIDEO_PROGRESS", nodeId: "video_unit", progress: 0.4 });
-    recordEvent("user_student_8", { bookVersionId: snapshot.versionId, eventType: "VIDEO_PROGRESS", nodeId: "video_unit", progress: 0.3 });
+    recordTrustedInternalEvent("user_student_8", { bookVersionId: snapshot.versionId, eventType: "AUDIO_PROGRESS", nodeId: "audio_unit", progress: 0.25 });
+    recordTrustedInternalEvent("user_student_8", { bookVersionId: snapshot.versionId, eventType: "AUDIO_PROGRESS", nodeId: "audio_unit", progress: 0.8 });
+    recordTrustedInternalEvent("user_student_8", { bookVersionId: snapshot.versionId, eventType: "VIDEO_PROGRESS", nodeId: "video_unit", progress: 0.4 });
+    recordTrustedInternalEvent("user_student_8", { bookVersionId: snapshot.versionId, eventType: "VIDEO_PROGRESS", nodeId: "video_unit", progress: 0.3 });
     const report = getPersonalReport("user_student_8", snapshot.versionId);
     expect(report.activeSeconds).toBe(10);
     expect(mediaCompletionRateForPrefix("user_student_8", snapshot.versionId, "AUDIO")).toBe(0.8);
@@ -308,7 +308,7 @@ describe("teaching loop", () => {
     const resource = listCourseResourcesForClassroom(DEMO_CLASSROOM_ID, "STUDENT").find((item) => item.asset.kind === "PDF");
     expect(resource).toBeTruthy();
     if (!resource) throw new Error("resource missing");
-    recordEvent("user_student", {
+    recordTrustedInternalEvent("user_student", {
       bookVersionId: snapshot.versionId,
       classroomId: DEMO_CLASSROOM_ID,
       eventType: "RESOURCE_OPEN",
@@ -365,6 +365,9 @@ describe("security guards", () => {
 
   it("protects asset access by owner, readable book, course resource and recording owner", () => {
     expect(ensureAssetReadable("asset_guide", studentUser).id).toBe("asset_guide");
+    expect(() => ensureAssetBelongsToBookOrClassroom("asset_guide", "book_not_real")).toThrow("ASSET_CONTEXT_FORBIDDEN");
+    expect(() => ensureAssetBelongsToBookOrClassroom("asset_docx", DEMO_BOOK_ID)).toThrow("ASSET_CONTEXT_FORBIDDEN");
+    expect(() => ensureAssetBelongsToBookOrClassroom("asset_docx", DEMO_BOOK_ID, DEMO_CLASSROOM_ID)).not.toThrow();
     expect(() => ensureAssetReadable("asset_docx", studentUser)).toThrow("ASSET_READ_FORBIDDEN");
     expect(() => ensureAssetOwner("asset_guide", "user_student")).toThrow("ASSET_OWNER_FORBIDDEN");
     getDb().prepare("INSERT INTO Asset (id, ownerId, kind, assetKey, originalName, mimeType, size, relativePath, title, description, metadataJson, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").run(

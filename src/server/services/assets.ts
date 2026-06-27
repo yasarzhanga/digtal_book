@@ -4,10 +4,9 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { AssetKindSchema, AssetSchema, uploadRules, type Asset } from "@/content-engine/schema/assets";
 import { collectAssetIdsFromDocument } from "@/content-engine/utils/assets";
-import { ChapterDocumentSchema } from "@/content-engine/schema/document";
+import { BookSnapshotSchema, ChapterDocumentSchema } from "@/content-engine/schema/document";
 import { asRow, asRows, getDb } from "@/server/db/client";
 import { id } from "@/server/db/ids";
-import { BookSnapshotSchema } from "@/content-engine/schema/document";
 import type { AssetRow, BookVersionRow, DraftDocumentRow } from "@/server/db/types";
 import type { PublicUser } from "@/server/services/auth";
 import { extractAssetSearchText } from "@/server/services/asset-search";
@@ -66,6 +65,20 @@ export function ensureAssetReadable(assetId: string, user: PublicUser): Asset {
     throw new Error("ASSET_READ_FORBIDDEN");
   }
   return toAsset(row);
+}
+
+export function ensureAssetBelongsToBookOrClassroom(assetId: string, bookId: string, classroomId?: string | null): void {
+  const asset = asRow<{ id: string }>(getDb().prepare("SELECT id FROM Asset WHERE id = ?").get(assetId));
+  if (!asset) {
+    throw new Error("ASSET_NOT_FOUND");
+  }
+  if (isAssetInCurrentBookSnapshot(assetId, bookId)) {
+    return;
+  }
+  if (classroomId && isAssetInClassroomCourse(assetId, bookId, classroomId)) {
+    return;
+  }
+  throw new Error("ASSET_CONTEXT_FORBIDDEN");
 }
 
 export function getAssetFile(assetId: string): { absolutePath: string; mimeType: string; originalName: string; size: number } {
@@ -279,6 +292,37 @@ function isPublishedBookAsset(assetId: string, user: PublicUser): boolean {
     }
     return canReadBook(user, row.bookId);
   });
+}
+
+function isAssetInCurrentBookSnapshot(assetId: string, bookId: string): boolean {
+  const version = asRow<BookVersionRow & { currentPublishedVersionId: string | null }>(
+    getDb().prepare(`
+      SELECT BookVersion.*, Book.currentPublishedVersionId
+      FROM Book
+      JOIN BookVersion ON BookVersion.id = Book.currentPublishedVersionId
+      WHERE Book.id = ?
+    `).get(bookId)
+  );
+  if (!version?.currentPublishedVersionId) {
+    return false;
+  }
+  return snapshotReferencesAsset(version.snapshotJson, assetId);
+}
+
+function isAssetInClassroomCourse(assetId: string, bookId: string, classroomId: string): boolean {
+  const row = asRow<{ id: string }>(
+    getDb().prepare(`
+      SELECT CourseResource.id
+      FROM CourseResource
+      JOIN Course ON Course.id = CourseResource.courseId
+      JOIN Classroom ON Classroom.courseId = Course.id
+      WHERE CourseResource.assetId = ?
+        AND Course.bookId = ?
+        AND Classroom.id = ?
+      LIMIT 1
+    `).get(assetId, bookId, classroomId)
+  );
+  return Boolean(row);
 }
 
 function snapshotReferencesAsset(snapshotJson: string, assetId: string): boolean {

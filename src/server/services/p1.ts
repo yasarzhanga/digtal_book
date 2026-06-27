@@ -24,7 +24,7 @@ import type {
   SimulationTemplateRunRow
 } from "@/server/db/types";
 import { getCurrentSnapshot } from "@/server/services/books";
-import { recordEvent } from "@/server/services/events";
+import { recordTrustedInternalEvent } from "@/server/services/events";
 import { getPersonalReport } from "@/server/services/reader";
 import { getClassAnalytics, getClassroom, getResourceLearningDetails } from "@/server/services/teaching";
 import { toAsset } from "@/server/services/assets";
@@ -274,7 +274,7 @@ export function submitAssignment(studentId: string, assignmentId: string, input:
       null
     );
   }
-  recordEvent(studentId, {
+  recordTrustedInternalEvent(studentId, {
     classroomId: assignment.classroomId,
     eventType: "ASSIGNMENT_SUBMIT",
     progress: result.maxScore > 0 ? result.score / result.maxScore : 0,
@@ -305,7 +305,7 @@ export function gradeAssignmentSubmission(teacherId: string, classroomId: string
   }
   const now = new Date().toISOString();
   getDb().prepare("UPDATE AssignmentSubmission SET score = ?, feedback = ?, status = 'GRADED', gradedAt = ? WHERE id = ?").run(parsed.score, parsed.feedback, now, submissionId);
-  recordEvent(row.studentId, {
+  recordTrustedInternalEvent(row.studentId, {
     classroomId,
     eventType: "ASSIGNMENT_GRADE",
     progress: row.maxScore > 0 ? parsed.score / row.maxScore : 0,
@@ -477,7 +477,7 @@ export function saveNotesMindMap(userId: string, bookId: string, input: z.input<
       now
     );
   }
-  recordEvent(userId, {
+  recordTrustedInternalEvent(userId, {
     bookVersionId: snapshot.versionId,
     eventType: "MINDMAP_EDIT",
     payload: { nodes: parsed.nodes.length, edges: parsed.edges.length }
@@ -506,7 +506,7 @@ export function runAndSaveSimulationTemplate(userId: string, input: z.input<type
     stringifyJson(result),
     now
   );
-  recordEvent(userId, {
+  recordTrustedInternalEvent(userId, {
     bookVersionId: parsed.bookVersionId,
     classroomId: parsed.classroomId,
     eventType: "SIMULATION_SAVE",

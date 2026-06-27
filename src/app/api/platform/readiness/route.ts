@@ -5,12 +5,14 @@ import { createDatabaseBackup, getCloudReadiness, listBackups, listTenantsForUse
 export async function GET(): Promise<Response> {
   try {
     const user = await requireUser();
-    if (user.role === "STUDENT") {
+    const tenants = listTenantsForUser(user.id);
+    const canReadReadiness = user.role === "EDITOR" || tenants.some((tenant) => tenant.role === "OWNER" || tenant.role === "ADMIN");
+    if (!canReadReadiness) {
       throw new Error("FORBIDDEN");
     }
     return ok({
       readiness: getCloudReadiness(),
-      tenants: listTenantsForUser(user.id),
+      tenants,
       backups: listBackups()
     });
   } catch (error) {

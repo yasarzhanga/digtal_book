@@ -258,6 +258,8 @@ test("P1 assignment, question bank, resource, report export and template pages w
   await page.goto(`/reader/books/${bookId}/resources?classroomId=${classroomId}`);
   await page.getByPlaceholder("搜索资源标题、类型、文件名或文件内容").fill("实验目的");
   await expect(page.getByText("DOCX 教材原稿")).toBeVisible();
+  const unboundDocxPage = await page.goto(`/reader/books/${bookId}/resources/asset_docx`);
+  expect(unboundDocxPage?.status()).toBeGreaterThanOrEqual(400);
   await page.goto(`/reader/books/${bookId}/resources/asset_docx?classroomId=${classroomId}`);
   await expect(page.getByText(/Office\/WPS 文档转 HTML 预览/)).toBeVisible();
   await expect(page.getByText(/牛顿第二定律/).first()).toBeVisible();
@@ -278,14 +280,16 @@ test("P1 assignment, question bank, resource, report export and template pages w
   await expect(page.getByText("资源学习明细")).toBeVisible();
   const resourceExport = await page.request.get(`/api/classes/${classroomId}/resources/learning?format=xlsx`);
   expect(resourceExport.ok()).toBe(true);
+  const teacherReadiness = await page.request.get("/api/platform/readiness");
+  expect(teacherReadiness.status()).toBe(403);
+  const backupResponse = await page.request.post("/api/platform/readiness");
+  expect(backupResponse.status()).toBe(403);
+  await demoLogin(page, "editor");
   const readiness = await page.request.get("/api/platform/readiness");
   expect(readiness.ok()).toBe(true);
   const readinessJson = await readiness.json() as { readiness: { rbac: { ready: boolean }; backup: { ready: boolean } } };
   expect(readinessJson.readiness.rbac.ready).toBe(true);
   expect(readinessJson.readiness.backup.ready).toBe(true);
-  const backupResponse = await page.request.post("/api/platform/readiness");
-  expect(backupResponse.status()).toBe(403);
-  await demoLogin(page, "editor");
   const editorBackupResponse = await page.request.post("/api/platform/readiness");
   expect(editorBackupResponse.ok()).toBe(true);
   await demoLogin(page, "teacher");
@@ -339,6 +343,10 @@ test("access boundaries reject forbidden assets, pages and learning writes", asy
 
   const teacherOnlyAsset = await page.request.get("/api/assets/asset_docx/file");
   expect(teacherOnlyAsset.status()).toBe(403);
+  const formulaAssistant = await page.request.post("/api/formula-assistant", {
+    data: { prompt: "生成 F=ma 公式", currentLatex: "", context: "" }
+  });
+  expect(formulaAssistant.status()).toBe(403);
 
   await passwordLogin(page, "student2@demo.local");
   const snapshotResponse = await page.request.get(`/api/reader/books/${bookId}`);

@@ -99,5 +99,20 @@
 | 3. 补齐编辑器、教师、reader 页面路由权限 | 完成 | 编辑器页面校验 owner，教师页面校验 classroom teacher，reader 页面校验可读教材/班级 | `npm run test:e2e` 覆盖学生访问编辑/教师页被拒绝 | 无 |
 | 4. 收紧敏感服务层读取函数或新增安全 wrapper | 完成 | `getEditorBookForOwner`、`listBooksForOwner`、安全资产 wrapper 和统计按课堂/版本过滤 | `npm run test`；`npm run verify:demo` | 无 |
 | 5. 防止学习统计污染和错误版本写入 | 完成 | `recordEventsForUser`、reader 写入接口校验当前发布版本和节点归属，班级统计按当前教材版本聚合 | `npm run test`；`npm run test:e2e` 覆盖错误版本和未入班事件写入被拒绝 | 无 |
-| 6. 课程创建 bookId 校验和 platform readiness 权限 | 完成 | `createCourseWithClassroom` 限 Demo 已发布教材；`POST /api/platform/readiness` 限编辑者 | `npm run test`；`npm run test:e2e` 覆盖教师备份被拒绝和非法教材建课失败 | Demo 仍是单本教材授权模型，不声明生产授权系统 |
+| 6. 课程创建 bookId 校验和 platform readiness 权限 | 完成 | `createCourseWithClassroom` 限 Demo 已发布教材；`GET/POST /api/platform/readiness` 限编辑者或租户 OWNER/ADMIN 模拟平台管理员 | `npm run test`；`npm run test:e2e` 覆盖教师 readiness/备份被拒绝和非法教材建课失败 | Demo 仍是单本教材授权模型，不声明生产授权系统 |
 | 7. 负向测试和完整验证命令 | 完成 | 单元和 E2E 新增资产、页面、事件、版本、课程和 readiness 负向覆盖 | `npm run verify:demo` 于 2026-06-27 14:37 通过，内部执行 reset/lint/typecheck/test/e2e/build 并检查三尺寸截图 | 无 |
+
+## 验收稳定化
+
+启动时间：2026-06-27
+
+目标：不扩展产品功能，只把验收链路、上下文绑定和容易误用的内部 API 收紧。
+
+| 项目 | 状态 | 修复证据 | 验证证据 | 剩余风险 |
+|---|---|---|---|---|
+| 1. GitHub Actions 跑 `verify:demo` | 完成 | `.github/workflows/verify-demo.yml` | 待推送后由 GitHub Actions 执行；本地仍跑完整命令 | CI 首次运行依赖 GitHub runner Node 25 可用 |
+| 2. 资源详情页上下文绑定 | 完成 | `ensureAssetBelongsToBookOrClassroom`；资源详情页必须绑定发布教材或 classroom 课程资源 | 单元测试和 E2E 负向覆盖 | 无 |
+| 3. trusted internal 事件写入 | 完成 | `recordTrustedInternalEvent(s)`；API 只使用 `recordEventsForUser` | `rg` 已确认无裸 `recordEvent/recordEvents` 调用 | 无 |
+| 4. readiness GET 收紧 | 完成 | `GET /api/platform/readiness` 限编辑者或租户 OWNER/ADMIN | E2E 覆盖默认教师 403、编辑者可读 | 平台管理员为 Demo 租户角色模拟 |
+| 5. formula assistant 收紧 | 完成 | `/api/formula-assistant` 使用 `requireEditor` | E2E 覆盖学生 403；编辑器发布流程覆盖编辑者可用 | 无 |
+| 6. 三端完整演示录屏 | 完成 | `artifacts/manual-demo-recordings/demo-desktop-1440x960.webm`、`demo-tablet-834x1112.webm`、`demo-mobile-390x844.webm` | `ffprobe` 校验 239.80s + 179.90s + 179.70s，总计约 599.40s；脚本化人工演示覆盖桌面、平板、手机主流程 | 无 |

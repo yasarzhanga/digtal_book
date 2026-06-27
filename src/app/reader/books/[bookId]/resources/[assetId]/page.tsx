@@ -1,6 +1,6 @@
 import { ensureBookReadable } from "@/server/auth/guards";
 import { requireUser } from "@/server/auth/session";
-import { ensureAssetReadable } from "@/server/services/assets";
+import { ensureAssetBelongsToBookOrClassroom, ensureAssetReadable } from "@/server/services/assets";
 import { getAssetPreview } from "@/server/services/previews";
 import { getReaderSnapshot } from "@/server/services/reader";
 import { getStudentClassroomForBook } from "@/server/services/teaching";
@@ -18,6 +18,7 @@ export default async function AssetPreviewPage({ params, searchParams }: PagePro
   const classroomId = requestedClassroomId ?? (user.role === "STUDENT" ? getStudentClassroomForBook(user.id, bookId) ?? undefined : undefined);
   ensureBookReadable(user, bookId, classroomId);
   ensureAssetReadable(assetId, user);
+  ensureAssetBelongsToBookOrClassroom(assetId, bookId, classroomId);
   const preview = await getAssetPreview(assetId);
   const snapshot = getReaderSnapshot(bookId);
   return (

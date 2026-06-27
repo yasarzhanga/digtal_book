@@ -4,15 +4,16 @@ import { ActivityBatchSchema, type ActivityEventInput } from "@/content-engine/t
 import { ensureActivityEventWritable } from "@/server/auth/guards";
 import type { PublicUser } from "@/server/services/auth";
 
-export function recordEvent(userId: string, event: ActivityEventInput): void {
-  recordEvents(userId, [event]);
+export function recordTrustedInternalEvent(userId: string, event: ActivityEventInput): void {
+  recordTrustedInternalEvents(userId, [event]);
 }
 
-export function recordEvents(userId: string, events: ActivityEventInput[]): void {
+export function recordTrustedInternalEvents(userId: string, events: ActivityEventInput[]): void {
   const parsed = ActivityBatchSchema.parse({ events });
   insertEvents(userId, parsed.events);
 }
 
+// Request handlers must use recordEventsForUser so each client-provided scope is checked first.
 export function recordEventsForUser(user: PublicUser, events: ActivityEventInput[]): void {
   const parsed = ActivityBatchSchema.parse({ events });
   for (const event of parsed.events) {

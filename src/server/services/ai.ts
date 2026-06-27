@@ -6,7 +6,7 @@ import { id } from "@/server/db/ids";
 import { parseJson, stringifyJson } from "@/server/db/json";
 import type { AiConversationRow, AiMessageRow } from "@/server/db/types";
 import { getPersonalReport, getReaderSnapshot } from "@/server/services/reader";
-import { recordEvent } from "@/server/services/events";
+import { recordTrustedInternalEvent } from "@/server/services/events";
 
 export const AiQuestionInputSchema = z.object({
   bookVersionId: z.string().min(1).optional(),
@@ -204,7 +204,7 @@ export async function askAiQuestion(userId: string, bookId: string, input: AiQue
     const insertMessage = getDb().prepare("INSERT INTO AiMessage (id, conversationId, role, content, citationsJson, provider, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?)");
     insertMessage.run(userMessageId, conversationId, "USER", parsed.question, stringifyJson([]), "student", now);
     insertMessage.run(assistantMessageId, conversationId, "ASSISTANT", providerAnswer.content, stringifyJson(citations), providerAnswer.provider, new Date().toISOString());
-    recordEvent(userId, {
+    recordTrustedInternalEvent(userId, {
       bookVersionId,
       chapterId: citations[0]?.chapterId,
       nodeId: citations[0]?.nodeId,

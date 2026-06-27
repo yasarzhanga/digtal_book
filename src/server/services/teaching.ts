@@ -6,7 +6,7 @@ import { DEMO_BOOK_ID } from "@/server/db/ids";
 import { id } from "@/server/db/ids";
 import type { AttendanceSessionRow, CourseRow, LiveQuizRow, LiveSessionRow } from "@/server/db/types";
 import { getCurrentSnapshot } from "@/server/services/books";
-import { recordEvent } from "@/server/services/events";
+import { recordTrustedInternalEvent } from "@/server/services/events";
 import { findQuizNode } from "@/server/services/reader";
 
 export const LiveLocationInputSchema = z.object({
@@ -343,7 +343,7 @@ export function respondLiveQuiz(studentId: string, liveQuizId: string, input: z.
     isCorrect ? 1 : 0,
     new Date().toISOString()
   );
-  recordEvent(studentId, {
+  recordTrustedInternalEvent(studentId, {
     classroomId: getClassroomIdForLiveQuiz(liveQuizId),
     eventType: "LIVE_QUIZ_SUBMIT",
     nodeId: liveQuiz.quizNodeId,
@@ -436,7 +436,7 @@ export function signAttendance(studentId: string, input: z.infer<typeof Attendan
     session.id,
     studentId
   );
-  recordEvent(studentId, {
+  recordTrustedInternalEvent(studentId, {
     classroomId: session.classroomId,
     eventType: "ATTENDANCE_SIGN",
     payload: { code: parsed.code, requireLocation: Boolean(session.requireLocation), distanceMeters }

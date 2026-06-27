@@ -9,7 +9,7 @@ import { asRow, asRows, getDb } from "@/server/db/client";
 import { id } from "@/server/db/ids";
 import { stringifyJson } from "@/server/db/json";
 import { getCurrentSnapshot } from "@/server/services/books";
-import { recordEvent } from "@/server/services/events";
+import { recordTrustedInternalEvent } from "@/server/services/events";
 import { assetSearchText } from "@/server/services/asset-search";
 
 export const ReadingStateInputSchema = z.object({
@@ -188,7 +188,7 @@ export function createAnnotation(userId: string, input: z.infer<typeof Annotatio
     now,
     now
   );
-  recordEvent(userId, {
+  recordTrustedInternalEvent(userId, {
     bookVersionId: parsed.bookVersionId,
     chapterId: parsed.chapterId,
     nodeId: parsed.nodeId,
@@ -227,7 +227,7 @@ export function saveExperiment(userId: string, input: z.infer<typeof ExperimentI
     stringifyJson(samples),
     now
   );
-  recordEvent(userId, {
+  recordTrustedInternalEvent(userId, {
     bookVersionId: parsed.bookVersionId,
     chapterId: parsed.chapterId,
     nodeId: parsed.nodeId,
@@ -257,7 +257,7 @@ export function submitQuiz(userId: string, snapshot: BookSnapshot, input: z.infe
     parsed.durationSeconds,
     new Date().toISOString()
   );
-  recordEvent(userId, {
+  recordTrustedInternalEvent(userId, {
     bookVersionId: parsed.bookVersionId,
     chapterId: parsed.chapterId,
     nodeId: parsed.nodeId,
@@ -281,7 +281,7 @@ export function createRecordingSubmission(userId: string, input: { bookVersionId
     input.durationSeconds,
     now
   );
-  recordEvent(userId, {
+  recordTrustedInternalEvent(userId, {
     bookVersionId: input.bookVersionId,
     chapterId: input.chapterId,
     nodeId: input.nodeId,
