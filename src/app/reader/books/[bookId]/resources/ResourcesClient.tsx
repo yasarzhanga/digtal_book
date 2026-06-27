@@ -39,7 +39,7 @@ export function ResourcesClient({
   courseResources
 }: {
   bookId: string;
-  classroomId: string;
+  classroomId?: string;
   bookVersionId: string;
   bookTitle: string;
   resources: BookResource[];
@@ -87,7 +87,7 @@ export function ResourcesClient({
           {filteredBookResources.map((item) => (
             <Link
               className="resource-card"
-              href={`/reader/books/${bookId}?chapter=${item.chapterId}#${item.nodeId}`}
+              href={`/reader/books/${bookId}${classroomId ? `?classroomId=${classroomId}&chapter=${item.chapterId}` : `?chapter=${item.chapterId}`}#${item.nodeId}`}
               key={item.nodeId}
               onClick={() => trackResourceOpen("book", { chapterId: item.chapterId, nodeId: item.nodeId, type: item.type, assetIds: item.assetIds })}
             >
@@ -104,7 +104,7 @@ export function ResourcesClient({
           {filteredCourseResources.map((item) => (
             <Link
               className="resource-card"
-              href={`/reader/books/${bookId}/resources/${item.asset.id}`}
+              href={`/reader/books/${bookId}/resources/${item.asset.id}${classroomId ? `?classroomId=${classroomId}` : ""}`}
               key={item.id}
               onClick={() => trackResourceOpen("course", { resourceId: item.id, assetId: item.asset.id, category: item.category, assetKind: item.asset.kind })}
             >

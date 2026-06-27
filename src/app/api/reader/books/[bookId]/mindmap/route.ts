@@ -1,4 +1,4 @@
-import { requireUser } from "@/server/auth/session";
+import { requireStudent } from "@/server/auth/guards";
 import { errorResponse, ok, parseJson } from "@/server/http";
 import { buildNotesMindMap, MindMapSchema, saveNotesMindMap } from "@/server/services/p1";
 
@@ -8,7 +8,7 @@ interface RouteContext {
 
 export async function GET(_request: Request, context: RouteContext): Promise<Response> {
   try {
-    const user = await requireUser();
+    const user = await requireStudent();
     const { bookId } = await context.params;
     return ok({ mindMap: buildNotesMindMap(user.id, bookId) });
   } catch (error) {
@@ -18,7 +18,7 @@ export async function GET(_request: Request, context: RouteContext): Promise<Res
 
 export async function PUT(request: Request, context: RouteContext): Promise<Response> {
   try {
-    const user = await requireUser();
+    const user = await requireStudent();
     const { bookId } = await context.params;
     const input = await parseJson(request, MindMapSchema);
     return ok({ mindMap: saveNotesMindMap(user.id, bookId, input) });

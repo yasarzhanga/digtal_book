@@ -1,6 +1,6 @@
-import { requireUser } from "@/server/auth/session";
+import { ensureClassroomTeacher, requireTeacher } from "@/server/auth/guards";
 import { errorResponse, ok } from "@/server/http";
-import { importQuestionBankWorkbook, listAssignmentsForTeacher, listQuestionBank } from "@/server/services/p1";
+import { importQuestionBankWorkbook, listQuestionBank } from "@/server/services/p1";
 
 interface RouteContext {
   params: Promise<{ classroomId: string }>;
@@ -8,12 +8,9 @@ interface RouteContext {
 
 export async function GET(_request: Request, context: RouteContext): Promise<Response> {
   try {
-    const user = await requireUser();
-    if (user.role !== "TEACHER") {
-      throw new Error("FORBIDDEN");
-    }
+    const user = await requireTeacher();
     const { classroomId } = await context.params;
-    listAssignmentsForTeacher(classroomId, user.id);
+    ensureClassroomTeacher(classroomId, user.id);
     return ok({ items: listQuestionBank(user.id) });
   } catch (error) {
     return errorResponse(error);
@@ -22,12 +19,9 @@ export async function GET(_request: Request, context: RouteContext): Promise<Res
 
 export async function POST(request: Request, context: RouteContext): Promise<Response> {
   try {
-    const user = await requireUser();
-    if (user.role !== "TEACHER") {
-      throw new Error("FORBIDDEN");
-    }
+    const user = await requireTeacher();
     const { classroomId } = await context.params;
-    listAssignmentsForTeacher(classroomId, user.id);
+    ensureClassroomTeacher(classroomId, user.id);
     const form = await request.formData();
     const file = form.get("file");
     if (!(file instanceof File)) {

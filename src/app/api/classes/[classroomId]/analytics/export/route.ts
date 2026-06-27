@@ -1,6 +1,6 @@
-import { requireUser } from "@/server/auth/session";
+import { ensureClassroomTeacher, requireTeacher } from "@/server/auth/guards";
 import { errorResponse } from "@/server/http";
-import { buildClassReportSvg, buildClassReportWorkbook, listAssignmentsForTeacher } from "@/server/services/p1";
+import { buildClassReportSvg, buildClassReportWorkbook } from "@/server/services/p1";
 
 interface RouteContext {
   params: Promise<{ classroomId: string }>;
@@ -8,12 +8,9 @@ interface RouteContext {
 
 export async function GET(request: Request, context: RouteContext): Promise<Response> {
   try {
-    const user = await requireUser();
-    if (user.role !== "TEACHER") {
-      throw new Error("FORBIDDEN");
-    }
+    const user = await requireTeacher();
     const { classroomId } = await context.params;
-    listAssignmentsForTeacher(classroomId, user.id);
+    ensureClassroomTeacher(classroomId, user.id);
     const format = new URL(request.url).searchParams.get("format") ?? "xlsx";
     if (format === "svg") {
       return new Response(buildClassReportSvg(classroomId), {

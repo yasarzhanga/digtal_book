@@ -1,10 +1,10 @@
 import { AssetUploadInputSchema, createUploadedAsset, listAssets } from "@/server/services/assets";
-import { requireUser } from "@/server/auth/session";
+import { requireRole } from "@/server/auth/guards";
 import { errorResponse, ok } from "@/server/http";
 
 export async function GET(): Promise<Response> {
   try {
-    await requireUser();
+    await requireRole(["EDITOR", "TEACHER"]);
     return ok({ assets: listAssets() });
   } catch (error) {
     return errorResponse(error);
@@ -13,7 +13,7 @@ export async function GET(): Promise<Response> {
 
 export async function POST(request: Request): Promise<Response> {
   try {
-    const user = await requireUser();
+    const user = await requireRole(["EDITOR", "TEACHER"]);
     const form = await request.formData();
     const file = form.get("file");
     if (!(file instanceof File)) {

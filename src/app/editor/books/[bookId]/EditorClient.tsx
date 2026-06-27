@@ -44,6 +44,18 @@ interface FormatBrushState {
   marginLeft: string;
 }
 
+interface DocxImportPreview {
+  chapterCount: number;
+  topLevelChapterCount: number;
+  subChapterCount: number;
+  mediaCount: number;
+  tableCount: number;
+  linkCount: number;
+  warnings: string[];
+  createdChapterId?: string;
+  createdChapterIds?: string[];
+}
+
 export function EditorClient({ book, assets }: EditorClientProps) {
   const [chapters, setChapters] = useState(book.chapters);
   const [selectedChapterId, setSelectedChapterId] = useState(book.chapters[0]?.id ?? "");
@@ -54,6 +66,9 @@ export function EditorClient({ book, assets }: EditorClientProps) {
   const [findText, setFindText] = useState("");
   const [replaceText, setReplaceText] = useState("");
   const [docxImportMessage, setDocxImportMessage] = useState("");
+  const [docxImportPreview, setDocxImportPreview] = useState<DocxImportPreview | null>(null);
+  const [pendingDocxFile, setPendingDocxFile] = useState<File | null>(null);
+  const [pendingSampleDocx, setPendingSampleDocx] = useState(false);
   const [formatBrush, setFormatBrush] = useState<FormatBrushState | null>(null);
   const selectedChapter = chapters.find((chapter) => chapter.id === selectedChapterId) ?? chapters[0];
   const selectedNode = selectedChapter?.document.nodes.find((node) => node.nodeId === selectedNodeId) ?? null;
@@ -198,34 +213,71 @@ export function EditorClient({ book, assets }: EditorClientProps) {
     const file = event.target.files?.[0];
     event.target.value = "";
     if (!file) return;
-    setDocxImportMessage("正在导入 DOCX");
+    setDocxImportMessage("正在生成 DOCX 导入预览");
+    setPendingDocxFile(null);
+    setPendingSampleDocx(false);
+    setDocxImportPreview(null);
     const formData = new FormData();
     formData.set("file", file);
-    formData.set("confirm", "true");
+    formData.set("confirm", "false");
     const response = await fetch(`/api/books/${book.id}/import-docx`, { method: "POST", body: formData });
     if (!response.ok) {
-      setDocxImportMessage("导入失败：仅支持 25MB 内 .docx 文件");
+      setDocxImportMessage("预览失败：仅支持 25MB 内 .docx 文件");
       return;
     }
-    const result = await response.json() as { createdChapterId?: string; chapterCount: number; mediaCount: number; tableCount: number };
-    await refreshBook(result.createdChapterId);
-    setDocxImportMessage(`已导入 ${result.chapterCount} 个章节线索，图片 ${result.mediaCount}，表格 ${result.tableCount}`);
+    const result = await response.json() as DocxImportPreview;
+    setPendingDocxFile(file);
+    setDocxImportPreview(result);
+    setDocxImportMessage(docxPreviewMessage(result));
   }
 
   async function importSampleDocx() {
-    setDocxImportMessage("正在导入样例 DOCX");
+    setDocxImportMessage("正在生成样例 DOCX 预览");
+    setPendingDocxFile(null);
+    setPendingSampleDocx(false);
+    setDocxImportPreview(null);
     const response = await fetch(`/api/books/${book.id}/import-docx`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ confirm: true })
+      body: JSON.stringify({ confirm: false })
     });
     if (!response.ok) {
-      setDocxImportMessage("样例导入失败");
+      setDocxImportMessage("样例预览失败");
       return;
     }
-    const result = await response.json() as { createdChapterId?: string; chapterCount: number; mediaCount: number; tableCount: number };
-    await refreshBook(result.createdChapterId);
-    setDocxImportMessage(`样例已导入：章节 ${result.chapterCount}，图片 ${result.mediaCount}，表格 ${result.tableCount}`);
+    const result = await response.json() as DocxImportPreview;
+    setPendingSampleDocx(true);
+    setDocxImportPreview(result);
+    setDocxImportMessage(docxPreviewMessage(result));
+  }
+
+  async function confirmDocxImport() {
+    if (!docxImportPreview || (!pendingDocxFile && !pendingSampleDocx)) return;
+    setDocxImportMessage("正在写入 DOCX 章节");
+    const response = pendingDocxFile
+      ? await confirmUploadedDocx(pendingDocxFile)
+      : await fetch(`/api/books/${book.id}/import-docx`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confirm: true })
+      });
+    if (!response.ok) {
+      setDocxImportMessage("确认导入失败：请检查文件格式和章节结构");
+      return;
+    }
+    const result = await response.json() as DocxImportPreview;
+    await refreshBook(result.createdChapterId ?? result.createdChapterIds?.[0]);
+    setPendingDocxFile(null);
+    setPendingSampleDocx(false);
+    setDocxImportPreview(null);
+    setDocxImportMessage(`已导入 ${result.chapterCount} 个章节，其中一级 ${result.topLevelChapterCount}、二级 ${result.subChapterCount}，图片 ${result.mediaCount}，表格 ${result.tableCount}`);
+  }
+
+  async function confirmUploadedDocx(file: File): Promise<Response> {
+    const formData = new FormData();
+    formData.set("file", file);
+    formData.set("confirm", "true");
+    return fetch(`/api/books/${book.id}/import-docx`, { method: "POST", body: formData });
   }
 
   function insertComponent(type: ComponentType) {
@@ -440,6 +492,17 @@ export function EditorClient({ book, assets }: EditorClientProps) {
           </label>
           <button type="button" onClick={() => void importSampleDocx()}>导入样例</button>
           {docxImportMessage ? <small>{docxImportMessage}</small> : null}
+          {docxImportPreview ? (
+            <div className="docx-preview-stats">
+              <span>一级 {docxImportPreview.topLevelChapterCount}</span>
+              <span>二级 {docxImportPreview.subChapterCount}</span>
+              <span>图片 {docxImportPreview.mediaCount}</span>
+              <span>表格 {docxImportPreview.tableCount}</span>
+              <span>链接 {docxImportPreview.linkCount}</span>
+              {docxImportPreview.warnings.length ? <em>{docxImportPreview.warnings[0]}</em> : null}
+              <button type="button" onClick={() => void confirmDocxImport()}>确认导入</button>
+            </div>
+          ) : null}
         </div>
         <div className="stats-box">
           <b>节内统计</b>
@@ -869,6 +932,10 @@ function stripHtml(html: string): string {
 
 function trimText(text: string, maxLength: number): string {
   return text.length > maxLength ? `${text.slice(0, maxLength - 1)}…` : text;
+}
+
+function docxPreviewMessage(result: DocxImportPreview): string {
+  return `导入预览：将创建 ${result.chapterCount} 个章节，一级 ${result.topLevelChapterCount}、二级 ${result.subChapterCount}，图片 ${result.mediaCount}，表格 ${result.tableCount}，链接 ${result.linkCount}`;
 }
 
 function escapeHtml(value: string): string {

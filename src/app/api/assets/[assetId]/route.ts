@@ -1,5 +1,5 @@
 import { deleteUnreferencedAsset, getAssetReferences } from "@/server/services/assets";
-import { requireUser } from "@/server/auth/session";
+import { ensureAssetOwner, requireRole } from "@/server/auth/guards";
 import { errorResponse, ok } from "@/server/http";
 
 interface RouteContext {
@@ -8,7 +8,7 @@ interface RouteContext {
 
 export async function GET(_request: Request, context: RouteContext): Promise<Response> {
   try {
-    await requireUser();
+    await requireRole(["EDITOR", "TEACHER"]);
     const { assetId } = await context.params;
     return ok({ references: getAssetReferences(assetId) });
   } catch (error) {
@@ -18,8 +18,9 @@ export async function GET(_request: Request, context: RouteContext): Promise<Res
 
 export async function DELETE(_request: Request, context: RouteContext): Promise<Response> {
   try {
-    await requireUser();
+    const user = await requireRole(["EDITOR", "TEACHER"]);
     const { assetId } = await context.params;
+    ensureAssetOwner(assetId, user.id);
     deleteUnreferencedAsset(assetId);
     return ok({ ok: true });
   } catch (error) {

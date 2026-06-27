@@ -35,7 +35,9 @@ test("editor uses TipTap, autosaves, inserts component and publishes", async ({ 
   await page.goto(`/editor/books/${bookId}`);
   await expect(page.getByText("属性面板")).toBeVisible();
   await page.setInputFiles("input[type='file'][accept*='.docx']", path.resolve(process.cwd(), "starter-assets/imports/sample-physics.docx"));
-  await expect(page.getByText(/已导入|样例已导入/)).toBeVisible({ timeout: 15000 });
+  await expect(page.getByText(/导入预览/)).toBeVisible({ timeout: 15000 });
+  await page.getByRole("button", { name: "确认导入" }).click();
+  await expect(page.getByText(/已导入/)).toBeVisible({ timeout: 15000 });
   await expect(page.getByText("原文段落拖拽排序")).toBeVisible();
   await page.locator(".ProseMirror").click();
   await page.locator(".tiptap-surface").evaluate((element) => {
@@ -154,15 +156,19 @@ test("student switches modes and operates rich media, simulation, quiz, notes an
 
 test("teacher syncs location, pushes live quiz, runs attendance and sees analytics", async ({ page }) => {
   await demoLogin(page, "teacher");
-  await page.goto("/teacher/courses");
-  await expect(page.getByText("课程和班级")).toBeVisible();
-  await expect(page.getByLabel("入班二维码").first()).toBeVisible();
-  await page.getByPlaceholder("课程名称").fill("E2E 课程");
-  await page.getByPlaceholder("首个班级名称").fill("E2E 一班");
-  await page.getByRole("button", { name: "创建课程" }).click();
-  await expect(page.getByText("课程和班级已创建")).toBeVisible();
-  await expect(page.getByText("E2E 课程")).toBeVisible();
-  await page.goto(`/teacher/classes/${classroomId}/live`);
+  const createdResponse = await page.request.post("/api/courses", { data: { name: "E2E Beta 课程", classroomName: "E2E Beta 一班", bookId } });
+  expect(createdResponse.ok()).toBe(true);
+  const createdJson = await createdResponse.json() as { course: { classroomId: string; joinCode: string } };
+  const liveClassroomId = createdJson.course.classroomId;
+
+  await demoLogin(page, "student");
+  await page.goto(`/student/classes/join?code=${createdJson.course.joinCode}`);
+  await page.getByRole("button", { name: "加入班级" }).click();
+  await expect(page).toHaveURL(/\/student\/classes/, { timeout: 8000 });
+  await expect(page.getByText("E2E Beta 一班")).toBeVisible();
+
+  await demoLogin(page, "teacher");
+  await page.goto(`/teacher/classes/${liveClassroomId}/live`);
   await page.getByRole("button", { name: "开始课堂" }).click();
   await page.getByRole("button", { name: "定位到仿真实验" }).click();
   await expect(page.getByText(/chapter-operate-5-physicsSimulation/)).toBeVisible();
@@ -171,22 +177,22 @@ test("teacher syncs location, pushes live quiz, runs attendance and sees analyti
   await expect(page.getByText(/签到码/)).toBeVisible();
 
   await demoLogin(page, "student");
-  await page.goto(`/reader/books/${bookId}`);
+  await page.goto(`/reader/books/${bookId}?classroomId=${liveClassroomId}`);
   await expect(page.getByText(/课堂进行中/)).toBeVisible({ timeout: 8000 });
   await page.getByRole("button", { name: "同步教师位置" }).click();
   await expect(page.getByRole("heading", { name: "F = ma 交互实验室" })).toBeVisible();
   await page.getByRole("button", { name: "地理签到" }).click();
   await expect(page.getByText("签到成功")).toBeVisible({ timeout: 8000 });
-  const currentResponse = await page.request.get(`/api/classes/${classroomId}/live/current`);
+  const currentResponse = await page.request.get(`/api/classes/${liveClassroomId}/live/current`);
   const current = await currentResponse.json() as LiveCurrent;
   expect(current.quiz?.id).toBeTruthy();
   await page.request.post(`/api/live-quiz/${current.quiz?.id}/respond`, { data: { answer: 2 } });
 
   await demoLogin(page, "teacher");
-  await page.goto(`/teacher/classes/${classroomId}/live`);
+  await page.goto(`/teacher/classes/${liveClassroomId}/live`);
   await expect(page.getByText(/已答 1/)).toBeVisible({ timeout: 8000 });
   await expect(page.locator(".attendance-list")).toContainText(/PRESENT.*m/, { timeout: 8000 });
-  await page.goto(`/teacher/classes/${classroomId}/analytics`);
+  await page.goto(`/teacher/classes/${liveClassroomId}/analytics`);
   await expect(page.getByText("班级数据")).toBeVisible();
   await expect(page.getByText(/仿真参与率/)).toBeVisible();
 });

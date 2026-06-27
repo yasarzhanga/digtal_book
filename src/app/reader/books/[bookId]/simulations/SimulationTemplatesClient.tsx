@@ -33,7 +33,7 @@ interface Run {
   createdAt: string;
 }
 
-export function SimulationTemplatesClient({ bookId, templates, initialRuns }: { bookId: string; templates: Template[]; initialRuns: Run[] }) {
+export function SimulationTemplatesClient({ bookId, classroomId, templates, initialRuns }: { bookId: string; classroomId?: string; templates: Template[]; initialRuns: Run[] }) {
   const [selectedKey, setSelectedKey] = useState(templates[0]?.key ?? "");
   const [values, setValues] = useState<Record<string, number>>({});
   const [runs, setRuns] = useState(initialRuns);
@@ -46,7 +46,7 @@ export function SimulationTemplatesClient({ bookId, templates, initialRuns }: { 
     const response = await fetch(`/api/reader/books/${bookId}/simulation-templates`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ templateKey: selected.key, values: currentValues, classroomId: "class_physics_1" })
+      body: JSON.stringify({ templateKey: selected.key, values: currentValues, classroomId })
     });
     if (response.ok) {
       const json = await response.json() as { run: Run };

@@ -1,4 +1,4 @@
-import { requireUser } from "@/server/auth/session";
+import { requireStudent } from "@/server/auth/guards";
 import { errorResponse, ok, parseJson } from "@/server/http";
 import { getReaderSnapshot } from "@/server/services/reader";
 import {
@@ -14,7 +14,7 @@ interface RouteContext {
 
 export async function GET(_request: Request, _context: RouteContext): Promise<Response> {
   try {
-    const user = await requireUser();
+    const user = await requireStudent();
     return ok({ templates: getSimulationTemplates(), runs: listSimulationTemplateRuns(user.id) });
   } catch (error) {
     return errorResponse(error);
@@ -23,7 +23,7 @@ export async function GET(_request: Request, _context: RouteContext): Promise<Re
 
 export async function POST(request: Request, context: RouteContext): Promise<Response> {
   try {
-    const user = await requireUser();
+    const user = await requireStudent();
     const { bookId } = await context.params;
     const snapshot = getReaderSnapshot(bookId);
     const raw = await parseJson(request, SimulationTemplateRunInputSchema.partial({ bookVersionId: true }));

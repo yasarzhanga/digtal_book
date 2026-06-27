@@ -1,4 +1,4 @@
-import { requireUser } from "@/server/auth/session";
+import { requireStudent } from "@/server/auth/guards";
 import { getPersonalReport, getReaderSnapshot } from "@/server/services/reader";
 
 interface PageProps {
@@ -6,7 +6,7 @@ interface PageProps {
 }
 
 export default async function ReportPage({ params }: PageProps) {
-  const user = await requireUser();
+  const user = await requireStudent();
   const { bookId } = await params;
   const snapshot = getReaderSnapshot(bookId);
   const report = getPersonalReport(user.id, snapshot.versionId);
@@ -25,8 +25,11 @@ export default async function ReportPage({ params }: PageProps) {
       <div className="metric-grid">
         <Metric label="有效阅读" value={`${Math.round(report.activeSeconds / 60)} 分钟`} />
         <Metric label="章节进度" value={`${report.visitedChapters}/3`} />
-        <Metric label="媒体完成率" value={`${Math.round(report.mediaCompletionRate * 100)}%`} />
-        <Metric label="仿真实验" value={`${report.simulationRuns} 次`} />
+        <Metric label="音频完成率" value={`${Math.round(report.audioCompletionRate * 100)}%`} />
+        <Metric label="视频完成率" value={`${Math.round(report.videoCompletionRate * 100)}%`} />
+        <Metric label="3D/全景交互" value={`${report.modelPanoramaInteractions} 次`} />
+        <Metric label="仿真实验运行" value={`${report.simulationRuns} 次`} />
+        <Metric label="实验保存" value={`${report.simulationSaveCount} 次`} />
         <Metric label="笔记" value={`${report.noteCount} 条`} />
         <Metric label="录音提交" value={`${report.recordingCount} 次`} />
       </div>

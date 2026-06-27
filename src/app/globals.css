@@ -416,6 +416,28 @@ h3 {
   padding: 0.45rem;
 }
 
+.docx-preview-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.4rem;
+  padding: 0.55rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-2);
+}
+
+.docx-preview-stats span,
+.docx-preview-stats em {
+  min-width: 0;
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+
+.docx-preview-stats em,
+.docx-preview-stats button {
+  grid-column: 1 / -1;
+}
+
 .docx-import-box small,
 .markdown-hint {
   color: var(--muted);
@@ -2319,6 +2341,48 @@ model-viewer,
 
 .note-colors button {
   text-transform: capitalize;
+}
+
+.annotation-mark {
+  border-radius: 3px;
+  padding: 0 0.12em;
+}
+
+.annotation-mark.yellow,
+.note-card.yellow {
+  background: #fff2a8;
+}
+
+.annotation-mark.green,
+.note-card.green {
+  background: #dff7df;
+}
+
+.annotation-mark.blue,
+.note-card.blue {
+  background: #dbeafe;
+}
+
+.annotation-mark.pink,
+.note-card.pink {
+  background: #fde2ef;
+}
+
+.note-card {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.55rem;
+}
+
+.note-card button {
+  min-height: 30px;
+  padding: 0.3rem 0.5rem;
+  text-align: left;
+}
+
+.note-card div {
+  display: flex;
+  gap: 0.4rem;
 }
 
 .teacher-live-layout {

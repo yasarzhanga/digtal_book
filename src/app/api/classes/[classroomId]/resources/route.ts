@@ -1,5 +1,5 @@
 import { AssetUploadInputSchema, createUploadedAsset } from "@/server/services/assets";
-import { requireUser } from "@/server/auth/session";
+import { ensureClassroomTeacher, ensureStudentEnrolled, requireRole, requireTeacher } from "@/server/auth/guards";
 import { errorResponse, ok, parseJson } from "@/server/http";
 import {
   CourseResourceCreateInputSchema,
@@ -13,8 +13,13 @@ interface RouteContext {
 
 export async function GET(_request: Request, context: RouteContext): Promise<Response> {
   try {
-    const user = await requireUser();
+    const user = await requireRole(["TEACHER", "STUDENT"]);
     const { classroomId } = await context.params;
+    if (user.role === "TEACHER") {
+      ensureClassroomTeacher(classroomId, user.id);
+    } else {
+      ensureStudentEnrolled(classroomId, user.id);
+    }
     return ok({ resources: listCourseResourcesForClassroom(classroomId, user.role) });
   } catch (error) {
     return errorResponse(error);
@@ -23,11 +28,9 @@ export async function GET(_request: Request, context: RouteContext): Promise<Res
 
 export async function POST(request: Request, context: RouteContext): Promise<Response> {
   try {
-    const user = await requireUser();
-    if (user.role !== "TEACHER") {
-      throw new Error("FORBIDDEN");
-    }
+    const user = await requireTeacher();
     const { classroomId } = await context.params;
+    ensureClassroomTeacher(classroomId, user.id);
     const contentType = request.headers.get("content-type") ?? "";
     if (contentType.includes("multipart/form-data")) {
       const form = await request.formData();

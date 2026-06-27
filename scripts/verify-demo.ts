@@ -2,7 +2,14 @@ import fs from "node:fs";
 import path from "node:path";
 import { execSync } from "node:child_process";
 
-const commands = ["npm run db:reset", "npm run test", "npm run test:e2e"];
+const commands = [
+  "npm run db:reset",
+  "npm run lint",
+  "npm run typecheck",
+  "npm run test",
+  "npm run test:e2e",
+  "npm run build"
+];
 
 for (const command of commands) {
   console.log(`\n> ${command}`);

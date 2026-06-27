@@ -1,6 +1,6 @@
-import { requireUser } from "@/server/auth/session";
+import { ensureClassroomTeacher, requireTeacher } from "@/server/auth/guards";
 import { errorResponse } from "@/server/http";
-import { buildQuestionBankTemplateWorkbook, listAssignmentsForTeacher } from "@/server/services/p1";
+import { buildQuestionBankTemplateWorkbook } from "@/server/services/p1";
 
 interface RouteContext {
   params: Promise<{ classroomId: string }>;
@@ -8,12 +8,9 @@ interface RouteContext {
 
 export async function GET(_request: Request, context: RouteContext): Promise<Response> {
   try {
-    const user = await requireUser();
-    if (user.role !== "TEACHER") {
-      throw new Error("FORBIDDEN");
-    }
+    const user = await requireTeacher();
     const { classroomId } = await context.params;
-    listAssignmentsForTeacher(classroomId, user.id);
+    ensureClassroomTeacher(classroomId, user.id);
     const buffer = await buildQuestionBankTemplateWorkbook();
     return fileResponse(buffer, "question-bank-template.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
   } catch (error) {

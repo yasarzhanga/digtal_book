@@ -1,5 +1,5 @@
 import { DEMO_BOOK_ID } from "@/server/db/ids";
-import { requireUser } from "@/server/auth/session";
+import { requireStudent } from "@/server/auth/guards";
 import { JoinClassClient } from "./JoinClassClient";
 
 interface PageProps {
@@ -7,7 +7,7 @@ interface PageProps {
 }
 
 export default async function JoinPage({ searchParams }: PageProps) {
-  await requireUser();
+  await requireStudent();
   const { code = "" } = await searchParams;
   return <JoinClassClient code={code} bookId={DEMO_BOOK_ID} />;
 }

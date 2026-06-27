@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { requireUser } from "@/server/auth/session";
+import { ensureAttendanceTeacher, requireTeacher } from "@/server/auth/guards";
 import { updateAttendanceRecord } from "@/server/services/teaching";
 import { errorResponse, ok, parseJson } from "@/server/http";
 
@@ -11,9 +11,10 @@ interface RouteContext {
 
 export async function PATCH(request: Request, context: RouteContext): Promise<Response> {
   try {
-    await requireUser();
+    const user = await requireTeacher();
     const input = await parseJson(request, StatusSchema);
     const { attendanceId, studentId } = await context.params;
+    ensureAttendanceTeacher(attendanceId, user.id);
     updateAttendanceRecord(attendanceId, studentId, input.status);
     return ok({ ok: true });
   } catch (error) {

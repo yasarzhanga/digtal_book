@@ -1,20 +1,27 @@
+import { ensureClassroomTeacher, ensureStudentEnrolled } from "@/server/auth/guards";
 import { requireUser } from "@/server/auth/session";
 import { getAssetPreview } from "@/server/services/previews";
 import { getReaderSnapshot } from "@/server/services/reader";
+import { getStudentClassroomForBook } from "@/server/services/teaching";
 import { ResourcePreviewTracker } from "./ResourcePreviewTracker";
 
 interface PageProps {
   params: Promise<{ bookId: string; assetId: string }>;
+  searchParams: Promise<{ classroomId?: string }>;
 }
 
-export default async function AssetPreviewPage({ params }: PageProps) {
-  await requireUser();
+export default async function AssetPreviewPage({ params, searchParams }: PageProps) {
+  const user = await requireUser();
   const { bookId, assetId } = await params;
+  const { classroomId: requestedClassroomId } = await searchParams;
   const preview = await getAssetPreview(assetId);
   const snapshot = getReaderSnapshot(bookId);
+  const classroomId = requestedClassroomId ?? (user.role === "STUDENT" ? getStudentClassroomForBook(user.id, bookId) ?? undefined : undefined);
+  if (classroomId && user.role === "STUDENT") ensureStudentEnrolled(classroomId, user.id);
+  if (classroomId && user.role === "TEACHER") ensureClassroomTeacher(classroomId, user.id);
   return (
     <main className="workspace-page">
-      <ResourcePreviewTracker bookVersionId={snapshot.versionId} classroomId="class_physics_1" assetId={assetId} title={preview.asset.title} assetKind={preview.asset.kind} />
+      <ResourcePreviewTracker bookVersionId={snapshot.versionId} classroomId={classroomId} assetId={assetId} title={preview.asset.title} assetKind={preview.asset.kind} />
       <section className="page-heading">
         <div>
           <p className="eyebrow">文件在线预览</p>

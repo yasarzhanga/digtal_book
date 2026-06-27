@@ -34,7 +34,7 @@ export function JoinClassClient({ code, bookId }: { code: string; bookId: string
       <div className="p1-panel">
         <p>邀请码：<b>{code}</b></p>
         {classroomId ? <p>班级 ID：{classroomId}</p> : null}
-        <Link className="primary-link" href={`/reader/books/${bookId}`}>进入数字教材</Link>
+        <Link className="primary-link" href={`/reader/books/${bookId}${classroomId ? `?classroomId=${classroomId}` : ""}`}>进入数字教材</Link>
       </div>
     </main>
   );

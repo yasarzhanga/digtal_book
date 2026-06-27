@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { requireUser } from "@/server/auth/session";
+import { ensureBookOwner, requireEditor } from "@/server/auth/guards";
 import { reorderChapters } from "@/server/services/books";
 import { errorResponse, ok, parseJson } from "@/server/http";
 
@@ -11,9 +11,10 @@ interface RouteContext {
 
 export async function POST(request: Request, context: RouteContext): Promise<Response> {
   try {
-    await requireUser();
+    const user = await requireEditor();
     const input = await parseJson(request, ReorderSchema);
     const { bookId } = await context.params;
+    ensureBookOwner(bookId, user.id);
     reorderChapters(bookId, input.chapterIds);
     return ok({ ok: true });
   } catch (error) {

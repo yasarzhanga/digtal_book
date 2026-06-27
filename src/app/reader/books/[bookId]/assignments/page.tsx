@@ -1,13 +1,19 @@
-import { requireUser } from "@/server/auth/session";
+import { ensureStudentEnrolled, requireStudent } from "@/server/auth/guards";
 import { listAssignmentsForStudent } from "@/server/services/p1";
+import { getStudentClassroomForBook } from "@/server/services/teaching";
 import { StudentAssignmentsClient } from "./StudentAssignmentsClient";
 
 interface PageProps {
   params: Promise<{ bookId: string }>;
+  searchParams: Promise<{ classroomId?: string }>;
 }
 
-export default async function StudentAssignmentsPage({ params }: PageProps) {
-  await params;
-  const user = await requireUser();
-  return <StudentAssignmentsClient classroomId="class_physics_1" initialAssignments={listAssignmentsForStudent("class_physics_1", user.id)} />;
+export default async function StudentAssignmentsPage({ params, searchParams }: PageProps) {
+  const { bookId } = await params;
+  const { classroomId: requestedClassroomId } = await searchParams;
+  const user = await requireStudent();
+  const classroomId = requestedClassroomId ?? getStudentClassroomForBook(user.id, bookId);
+  if (classroomId) ensureStudentEnrolled(classroomId, user.id);
+  const assignments = classroomId ? listAssignmentsForStudent(classroomId, user.id) : [];
+  return <StudentAssignmentsClient classroomId={classroomId ?? ""} initialAssignments={assignments} />;
 }

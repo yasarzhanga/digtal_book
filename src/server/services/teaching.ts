@@ -131,6 +131,34 @@ export function listTeacherCourses(teacherId: string): { id: string; name: strin
   }));
 }
 
+export function listStudentClassrooms(studentId: string): { id: string; name: string; joinCode: string; courseName: string; bookId: string }[] {
+  return asRows<{ id: string; name: string; joinCode: string; courseName: string; bookId: string }>(
+    getDb().prepare(`
+      SELECT Classroom.id, Classroom.name, Classroom.joinCode, Course.name AS courseName, Course.bookId
+      FROM Enrollment
+      JOIN Classroom ON Classroom.id = Enrollment.classroomId
+      JOIN Course ON Course.id = Classroom.courseId
+      WHERE Enrollment.studentId = ?
+      ORDER BY Classroom.createdAt DESC
+    `).all(studentId)
+  );
+}
+
+export function getStudentClassroomForBook(studentId: string, bookId: string): string | null {
+  const row = asRow<{ id: string }>(
+    getDb().prepare(`
+      SELECT Classroom.id
+      FROM Enrollment
+      JOIN Classroom ON Classroom.id = Enrollment.classroomId
+      JOIN Course ON Course.id = Classroom.courseId
+      WHERE Enrollment.studentId = ? AND Course.bookId = ?
+      ORDER BY Classroom.createdAt DESC
+      LIMIT 1
+    `).get(studentId, bookId)
+  );
+  return row?.id ?? null;
+}
+
 export function createCourseWithClassroom(teacherId: string, input: z.input<typeof CourseCreateInputSchema>): { id: string; classroomId: string; joinCode: string } {
   const parsed = CourseCreateInputSchema.parse(input);
   const now = new Date().toISOString();
@@ -679,10 +707,21 @@ function distinctParticipantCount(studentIds: string[], eventType: string): numb
 
 function averageEventProgress(studentIds: string[], prefix: "AUDIO" | "VIDEO"): number {
   if (studentIds.length === 0) return 0;
-  const rows = asRows<{ eventType: string; progress: number | null }>(
-    getDb().prepare(`SELECT eventType, progress FROM ActivityEvent WHERE userId IN (${studentIds.map(() => "?").join(",")}) AND eventType LIKE ?`).all(...studentIds, `${prefix}%`)
+  const rows = asRows<{ userId: string; nodeId: string | null; eventType: string; progress: number | null }>(
+    getDb().prepare(`
+      SELECT userId, nodeId, eventType, progress
+      FROM ActivityEvent
+      WHERE userId IN (${studentIds.map(() => "?").join(",")})
+        AND eventType IN (?, ?)
+    `).all(...studentIds, `${prefix}_PROGRESS`, `${prefix}_COMPLETE`)
   );
-  const values = rows.map((row) => row.eventType.endsWith("COMPLETE") ? 1 : row.progress ?? 0).filter((value) => value > 0);
+  const maxByStudentNode = new Map<string, number>();
+  for (const row of rows) {
+    const key = `${row.userId}:${row.nodeId ?? `${prefix}:unknown`}`;
+    const value = row.eventType.endsWith("COMPLETE") ? 1 : row.progress ?? 0;
+    maxByStudentNode.set(key, Math.max(maxByStudentNode.get(key) ?? 0, value));
+  }
+  const values = [...maxByStudentNode.values()].filter((value) => value > 0);
   return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0;
 }
 

@@ -11,7 +11,7 @@ export function ResourcePreviewTracker({
   assetKind
 }: {
   bookVersionId: string;
-  classroomId: string;
+  classroomId?: string;
   assetId: string;
   title: string;
   assetKind: string;

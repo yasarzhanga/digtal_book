@@ -1,4 +1,4 @@
-import { requireUser } from "@/server/auth/session";
+import { ensureClassroomTeacher, requireTeacher } from "@/server/auth/guards";
 import { LiveLocationInputSchema, setLiveLocation } from "@/server/services/teaching";
 import { errorResponse, ok, parseJson } from "@/server/http";
 
@@ -8,9 +8,10 @@ interface RouteContext {
 
 export async function PATCH(request: Request, context: RouteContext): Promise<Response> {
   try {
-    await requireUser();
+    const user = await requireTeacher();
     const input = await parseJson(request, LiveLocationInputSchema);
     const { classroomId } = await context.params;
+    ensureClassroomTeacher(classroomId, user.id);
     return ok({ live: setLiveLocation(classroomId, input) });
   } catch (error) {
     return errorResponse(error);

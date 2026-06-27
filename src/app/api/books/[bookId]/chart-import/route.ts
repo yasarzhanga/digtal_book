@@ -1,7 +1,6 @@
 import { z } from "zod";
-import { requireUser } from "@/server/auth/session";
+import { ensureBookOwner, requireEditor } from "@/server/auth/guards";
 import { importChartWorkbook } from "@/server/services/authoring";
-import { getEditorBook } from "@/server/services/books";
 import { errorResponse, ok } from "@/server/http";
 
 const ChartImportFormSchema = z.object({
@@ -21,9 +20,9 @@ interface RouteContext {
 
 export async function POST(request: Request, context: RouteContext): Promise<Response> {
   try {
-    await requireUser();
+    const user = await requireEditor();
     const { bookId } = await context.params;
-    getEditorBook(bookId);
+    ensureBookOwner(bookId, user.id);
     const formData = await request.formData();
     const parsed = ChartImportFormSchema.parse({ file: formData.get("file") });
     const buffer = Buffer.from(await parsed.file.arrayBuffer());

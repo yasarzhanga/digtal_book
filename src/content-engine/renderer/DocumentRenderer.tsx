@@ -7,6 +7,7 @@ import { ClipboardList, Download, Expand, Mic, Pause, Play, RotateCcw, Save, Sea
 import type { Asset } from "@/content-engine/schema/assets";
 import type { BookSnapshot, SnapshotChapter } from "@/content-engine/schema/document";
 import type { ChartNode, ContentNode, PhysicsSimulationNode, QuizQuestion, QuizSetNode } from "@/content-engine/schema/nodes";
+import { applyAnnotationMarksToHtml, type AnnotationRange } from "@/content-engine/utils/annotations";
 import { acceleration, sampleMotion } from "@/content-engine/utils/simulation";
 import { trackWithContext } from "@/content-engine/tracking/client";
 
@@ -18,26 +19,17 @@ interface DocumentRendererProps {
   mode: ReaderMode;
   bookId: string;
   classroomId?: string;
+  annotations?: (AnnotationRange & { chapterId: string; nodeId: string })[];
   onNavigate?: (chapterId: string, nodeId?: string) => void;
   onTeacherSetLocation?: (chapterId: string, nodeId: string) => void;
 }
 
-export function DocumentRenderer({ snapshot, chapter, mode, bookId, classroomId, onNavigate, onTeacherSetLocation }: DocumentRendererProps) {
+export function DocumentRenderer({ snapshot, chapter, mode, bookId, classroomId, annotations = [], onNavigate, onTeacherSetLocation }: DocumentRendererProps) {
   const assets = useMemo(() => new Map(snapshot.assets.map((asset) => [asset.id, asset])), [snapshot.assets]);
   const track = useMemo(() => trackWithContext(snapshot.versionId, classroomId), [snapshot.versionId, classroomId]);
 
   useEffect(() => {
     track({ eventType: "PAGE_VIEW", chapterId: chapter.id, nodeId: chapter.document.nodes[0]?.nodeId, payload: { mode } });
-    void fetch(`/api/reader/books/${bookId}/state`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        bookVersionId: snapshot.versionId,
-        lastChapterId: chapter.id,
-        lastNodeId: chapter.document.nodes[0]?.nodeId,
-        activeSecondsDelta: 1
-      })
-    });
   }, [bookId, chapter, mode, snapshot.versionId, track]);
 
   return (
@@ -59,6 +51,7 @@ export function DocumentRenderer({ snapshot, chapter, mode, bookId, classroomId,
               snapshot={snapshot}
               assets={assets}
               track={track}
+              annotations={annotations.filter((annotation) => annotation.chapterId === chapter.id && annotation.nodeId === node.nodeId)}
               onNavigate={onNavigate}
             />
           )}
@@ -75,6 +68,7 @@ function DigitalNode({
   snapshot,
   assets,
   track,
+  annotations,
   onNavigate
 }: {
   node: ContentNode;
@@ -83,13 +77,14 @@ function DigitalNode({
   snapshot: BookSnapshot;
   assets: Map<string, Asset>;
   track: ReturnType<typeof trackWithContext>;
+  annotations: AnnotationRange[];
   onNavigate?: (chapterId: string, nodeId?: string) => void;
 }) {
   switch (node.type) {
     case "heading":
       return <HeadingNode node={node} />;
     case "richText":
-      return <RichTextNode node={node} chapterId={chapterId} track={track} />;
+      return <RichTextNode node={node} chapterId={chapterId} track={track} annotations={annotations} />;
     case "callout":
       return <CalloutNode node={node} />;
     case "imageInteractive":
@@ -149,8 +144,9 @@ function HeadingNode({ node }: { node: Extract<ContentNode, { type: "heading" }>
   return <h6 className="doc-heading level-6">{node.text}</h6>;
 }
 
-function RichTextNode({ node, chapterId, track }: { node: Extract<ContentNode, { type: "richText" }>; chapterId: string; track: ReturnType<typeof trackWithContext> }) {
+function RichTextNode({ node, chapterId, track, annotations }: { node: Extract<ContentNode, { type: "richText" }>; chapterId: string; track: ReturnType<typeof trackWithContext>; annotations: AnnotationRange[] }) {
   const [bubble, setBubble] = useState<{ title: string; body: string } | null>(null);
+  const html = useMemo(() => applyAnnotationMarksToHtml(node.html, annotations), [annotations, node.html]);
   function onClick(event: MouseEvent<HTMLDivElement>) {
     const target = event.target;
     if (target instanceof HTMLElement && target.dataset.term) {
@@ -160,7 +156,7 @@ function RichTextNode({ node, chapterId, track }: { node: Extract<ContentNode, {
   }
   return (
     <div className="rich-text-wrap">
-      <div className="rich-text" onClick={onClick} dangerouslySetInnerHTML={{ __html: node.html }} />
+      <div className="rich-text" onClick={onClick} dangerouslySetInnerHTML={{ __html: html }} />
       {bubble ? (
         <div className="inline-popover">
           <strong>{bubble.title}</strong>
@@ -250,8 +246,17 @@ function GalleryNode({ node, assets, chapterId, track }: { node: Extract<Content
 
 function AudioNode({ node, asset, chapterId, track }: { node: Extract<ContentNode, { type: "audio" }>; asset?: Asset; chapterId: string; track: ReturnType<typeof trackWithContext> }) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const lastProgressAt = useRef(0);
   const [rate, setRate] = useState(1);
   if (!asset) return <MissingAsset id={node.assetId} />;
+  function reportProgress(media: HTMLAudioElement) {
+    if (media.duration <= 0) return;
+    const now = Date.now();
+    const progress = media.currentTime / media.duration;
+    if (now - lastProgressAt.current < 5000 && progress < 0.98) return;
+    lastProgressAt.current = now;
+    track({ eventType: "AUDIO_PROGRESS", chapterId, nodeId: node.nodeId, progress });
+  }
   function setPlaybackRate(value: number) {
     setRate(value);
     if (audioRef.current) audioRef.current.playbackRate = value;
@@ -264,10 +269,7 @@ function AudioNode({ node, asset, chapterId, track }: { node: Extract<ContentNod
         src={asset.url}
         controls
         onPlay={() => track({ eventType: "AUDIO_PLAY", chapterId, nodeId: node.nodeId })}
-        onTimeUpdate={(event) => {
-          const media = event.currentTarget;
-          if (media.duration > 0) track({ eventType: "AUDIO_PROGRESS", chapterId, nodeId: node.nodeId, progress: media.currentTime / media.duration });
-        }}
+        onTimeUpdate={(event) => reportProgress(event.currentTarget)}
         onEnded={() => track({ eventType: "AUDIO_COMPLETE", chapterId, nodeId: node.nodeId, progress: 1 })}
       />
       <div className="media-actions">
@@ -284,7 +286,16 @@ function AudioNode({ node, asset, chapterId, track }: { node: Extract<ContentNod
 
 function VideoNode({ node, asset, caption, chapterId, track }: { node: Extract<ContentNode, { type: "video" }>; asset?: Asset; caption?: Asset; chapterId: string; track: ReturnType<typeof trackWithContext> }) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const lastProgressAt = useRef(0);
   if (!asset) return <MissingAsset id={node.assetId} />;
+  function reportProgress(media: HTMLVideoElement) {
+    if (media.duration <= 0) return;
+    const now = Date.now();
+    const progress = media.currentTime / media.duration;
+    if (now - lastProgressAt.current < 5000 && progress < 0.98) return;
+    lastProgressAt.current = now;
+    track({ eventType: "VIDEO_PROGRESS", chapterId, nodeId: node.nodeId, progress });
+  }
   return (
     <section className="media-card video-card">
       <h3>{node.title}</h3>
@@ -294,10 +305,7 @@ function VideoNode({ node, asset, caption, chapterId, track }: { node: Extract<C
         controls
         playsInline
         onPlay={() => track({ eventType: "VIDEO_PLAY", chapterId, nodeId: node.nodeId })}
-        onTimeUpdate={(event) => {
-          const media = event.currentTarget;
-          if (media.duration > 0) track({ eventType: "VIDEO_PROGRESS", chapterId, nodeId: node.nodeId, progress: media.currentTime / media.duration });
-        }}
+        onTimeUpdate={(event) => reportProgress(event.currentTarget)}
         onEnded={() => track({ eventType: "VIDEO_COMPLETE", chapterId, nodeId: node.nodeId, progress: 1 })}
       >
         {caption ? <track src={caption.url} kind="subtitles" srcLang="zh" label="中文字幕" default /> : null}

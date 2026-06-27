@@ -1,11 +1,19 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import ExcelJS from "exceljs";
 import fs from "node:fs";
-import { DEMO_BOOK_ID, DEMO_CLASSROOM_ID } from "@/server/db/ids";
-import { closeDb } from "@/server/db/client";
+import { DEMO_BOOK_ID, DEMO_CLASSROOM_ID, DEMO_COURSE_ID } from "@/server/db/ids";
+import { closeDb, getDb } from "@/server/db/client";
+import {
+  ensureAttendanceStudent,
+  ensureEditorBookOwner,
+  ensureLiveQuizStudent,
+  ensureStudentClassroomAccess,
+  ensureTeacherClassroomAccess
+} from "@/server/auth/guards";
+import { demoLogin, type PublicUser } from "@/server/services/auth";
 import { getEditorBook, importDocxUpload, publishBook, saveChapterDocument } from "@/server/services/books";
 import { getCurrentSnapshot } from "@/server/services/books";
-import { auditNoUnsupportedEventTypes, getPersonalReport, saveExperiment, searchBook, submitQuiz } from "@/server/services/reader";
+import { auditNoUnsupportedEventTypes, getPersonalReport, mediaCompletionRateForPrefix, saveExperiment, searchBook, submitQuiz, upsertReadingState } from "@/server/services/reader";
 import {
   createClassroomForCourse,
   createCourseWithClassroom,
@@ -66,6 +74,7 @@ import {
 } from "@/server/services/p1";
 import { recordEvent } from "@/server/services/events";
 import { collectAssetIdsFromDocument } from "@/content-engine/utils/assets";
+import { applyAnnotationMarksToHtml } from "@/content-engine/utils/annotations";
 import { acceleration, sampleMotion } from "@/content-engine/utils/simulation";
 import { scoreQuiz } from "@/content-engine/utils/quiz";
 import { resetDemoDatabase } from "../../scripts/db-reset";
@@ -123,12 +132,13 @@ describe("content engine and publishing", () => {
 
   it("imports an uploaded docx buffer into a new editable chapter", async () => {
     const buffer = fs.readFileSync("starter-assets/imports/sample-physics.docx");
-    const preview = await importDocxUpload(DEMO_BOOK_ID, { fileName: "unit-upload.docx", buffer, confirm: false });
+    const preview = await importDocxUpload(DEMO_BOOK_ID, "user_editor", { fileName: "unit-upload.docx", buffer, confirm: false });
     expect(preview.chapterCount).toBeGreaterThan(0);
-    const result = await importDocxUpload(DEMO_BOOK_ID, { fileName: "unit-upload.docx", buffer, confirm: true });
-    expect(result.createdChapterId).toBeTruthy();
+    expect(preview.tableCount).toBeGreaterThan(0);
+    const result = await importDocxUpload(DEMO_BOOK_ID, "user_editor", { fileName: "unit-upload.docx", buffer, confirm: true });
+    expect(result.createdChapterIds?.length).toBe(result.chapterCount);
     const book = getEditorBook(DEMO_BOOK_ID);
-    expect(book.chapters.some((chapter) => chapter.id === result.createdChapterId && chapter.document.nodes.some((node) => node.type === "richText"))).toBe(true);
+    expect(book.chapters.some((chapter) => result.createdChapterIds?.includes(chapter.id) && chapter.document.nodes.some((node) => node.type === "richText" && node.html.includes("<table")))).toBe(true);
   });
 });
 
@@ -184,6 +194,46 @@ describe("learning interactions", () => {
     expect(auditNoUnsupportedEventTypes()).toBe(true);
     const report = getPersonalReport("user_student", getCurrentSnapshot(DEMO_BOOK_ID).versionId);
     expect(report.mediaCompletionRate).toBeGreaterThan(0);
+  });
+
+  it("renders annotation offsets back into rich text html", () => {
+    const html = "<p>牛顿第二定律说明力改变运动。</p>";
+    const marked = applyAnnotationMarksToHtml(html, [{
+      id: "note_unit",
+      quote: "第二定律",
+      startOffset: 2,
+      endOffset: 6,
+      color: "blue",
+      note: "重点"
+    }]);
+    expect(marked).toContain('<mark class="annotation-mark blue"');
+    expect(marked).toContain(">第二定律</mark>");
+  });
+
+  it("aggregates active reading heartbeats and max media progress", () => {
+    const snapshot = getCurrentSnapshot(DEMO_BOOK_ID);
+    getDb().prepare("DELETE FROM ActivityEvent WHERE userId = ?").run("user_student_8");
+    getDb().prepare("DELETE FROM ReadingState WHERE userId = ?").run("user_student_8");
+    upsertReadingState("user_student_8", {
+      bookVersionId: snapshot.versionId,
+      lastChapterId: "chapter-observe",
+      lastNodeId: "chapter-observe-1-richText",
+      activeSecondsDelta: 10
+    });
+    upsertReadingState("user_student_8", {
+      bookVersionId: snapshot.versionId,
+      lastChapterId: "chapter-observe",
+      lastNodeId: "chapter-observe-1-richText",
+      activeSecondsDelta: 0
+    });
+    recordEvent("user_student_8", { bookVersionId: snapshot.versionId, eventType: "AUDIO_PROGRESS", nodeId: "audio_unit", progress: 0.25 });
+    recordEvent("user_student_8", { bookVersionId: snapshot.versionId, eventType: "AUDIO_PROGRESS", nodeId: "audio_unit", progress: 0.8 });
+    recordEvent("user_student_8", { bookVersionId: snapshot.versionId, eventType: "VIDEO_PROGRESS", nodeId: "video_unit", progress: 0.4 });
+    recordEvent("user_student_8", { bookVersionId: snapshot.versionId, eventType: "VIDEO_PROGRESS", nodeId: "video_unit", progress: 0.3 });
+    const report = getPersonalReport("user_student_8", snapshot.versionId);
+    expect(report.activeSeconds).toBe(10);
+    expect(mediaCompletionRateForPrefix("user_student_8", snapshot.versionId, "AUDIO")).toBe(0.8);
+    expect(report.videoCompletionRate).toBe(0.4);
   });
 
   it("searches textbook resource file metadata as well as content text", () => {
@@ -258,6 +308,50 @@ describe("teaching loop", () => {
     const details = getResourceLearningDetails(DEMO_CLASSROOM_ID);
     expect(details.summaries.some((item) => item.title === resource.title && item.openCount >= 1)).toBe(true);
     expect((await buildResourceLearningWorkbook(DEMO_CLASSROOM_ID)).byteLength).toBeGreaterThan(4000);
+  });
+});
+
+describe("security guards", () => {
+  const editorUser: PublicUser = { id: "user_editor", name: "演示编辑者", email: "editor@demo.local", role: "EDITOR" };
+  const teacherUser: PublicUser = { id: "user_teacher", name: "林老师", email: "teacher@demo.local", role: "TEACHER" };
+  const studentUser: PublicUser = { id: "user_student", name: "陈同学", email: "student@demo.local", role: "STUDENT" };
+
+  it("only enables demo login when DEMO_MODE is explicitly true", () => {
+    const previous = process.env.DEMO_MODE;
+    process.env.DEMO_MODE = "false";
+    expect(() => demoLogin("student")).toThrow("DEMO_MODE_DISABLED");
+    delete process.env.DEMO_MODE;
+    expect(() => demoLogin("student")).toThrow("DEMO_MODE_DISABLED");
+    process.env.DEMO_MODE = "true";
+    expect(demoLogin("student").id).toBe("user_student");
+    if (previous === undefined) {
+      delete process.env.DEMO_MODE;
+    } else {
+      process.env.DEMO_MODE = previous;
+    }
+  });
+
+  it("prevents students and non-owner teachers from editing or publishing books", () => {
+    expect(() => ensureEditorBookOwner(DEMO_BOOK_ID, studentUser)).toThrow("EDITOR_ROLE_REQUIRED_FORBIDDEN");
+    expect(() => ensureEditorBookOwner(DEMO_BOOK_ID, teacherUser)).toThrow("EDITOR_ROLE_REQUIRED_FORBIDDEN");
+    expect(() => ensureEditorBookOwner(DEMO_BOOK_ID, { ...editorUser, id: "user_editor_other" })).toThrow("BOOK_OWNER_FORBIDDEN");
+    expect(ensureEditorBookOwner(DEMO_BOOK_ID, editorUser).id).toBe(DEMO_BOOK_ID);
+  });
+
+  it("prevents students and editors from starting teacher-only classroom actions", () => {
+    expect(() => ensureTeacherClassroomAccess(DEMO_CLASSROOM_ID, studentUser)).toThrow("TEACHER_ROLE_REQUIRED_FORBIDDEN");
+    expect(() => ensureTeacherClassroomAccess(DEMO_CLASSROOM_ID, editorUser)).toThrow("TEACHER_ROLE_REQUIRED_FORBIDDEN");
+    expect(ensureTeacherClassroomAccess(DEMO_CLASSROOM_ID, teacherUser).id).toBe(DEMO_COURSE_ID);
+  });
+
+  it("prevents unenrolled students from live quiz and attendance actions", () => {
+    const created = createCourseWithClassroom("user_teacher", { name: "权限测试课", classroomName: "未加入班级" });
+    startLiveSession(created.classroomId);
+    const liveQuiz = startLiveQuiz(created.classroomId, { quizNodeId: "chapter-practice-1-quizSet", questionId: "q1" });
+    const attendance = startAttendance(created.classroomId);
+    expect(() => ensureStudentClassroomAccess(created.classroomId, studentUser)).toThrow("STUDENT_CLASSROOM_FORBIDDEN");
+    expect(() => ensureLiveQuizStudent(liveQuiz.id, "user_student")).toThrow("STUDENT_CLASSROOM_FORBIDDEN");
+    expect(() => ensureAttendanceStudent(attendance.id, "user_student")).toThrow("STUDENT_CLASSROOM_FORBIDDEN");
   });
 });
 

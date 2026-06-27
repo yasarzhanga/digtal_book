@@ -1,4 +1,4 @@
-import { requireUser } from "@/server/auth/session";
+import { ensureClassroomTeacher, requireTeacher } from "@/server/auth/guards";
 import { AttendanceStartInputSchema, getAttendanceRows, getCurrentLive, startAttendance } from "@/server/services/teaching";
 import { errorResponse, ok, parseJson } from "@/server/http";
 
@@ -8,8 +8,9 @@ interface RouteContext {
 
 export async function GET(_request: Request, context: RouteContext): Promise<Response> {
   try {
-    await requireUser();
+    const user = await requireTeacher();
     const { classroomId } = await context.params;
+    ensureClassroomTeacher(classroomId, user.id);
     const attendance = getCurrentLive(classroomId).attendance;
     return ok({ attendance, records: attendance ? getAttendanceRows(attendance.id) : [] });
   } catch (error) {
@@ -19,8 +20,9 @@ export async function GET(_request: Request, context: RouteContext): Promise<Res
 
 export async function POST(request: Request, context: RouteContext): Promise<Response> {
   try {
-    await requireUser();
+    const user = await requireTeacher();
     const { classroomId } = await context.params;
+    ensureClassroomTeacher(classroomId, user.id);
     const input = request.headers.get("content-type")?.includes("application/json")
       ? await parseJson(request, AttendanceStartInputSchema)
       : {};

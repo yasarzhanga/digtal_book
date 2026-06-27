@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { requireUser } from "@/server/auth/session";
+import { requireStudent } from "@/server/auth/guards";
 import { createUploadedAsset } from "@/server/services/assets";
 import { createRecordingSubmission } from "@/server/services/reader";
 import { errorResponse, ok } from "@/server/http";
@@ -13,7 +13,7 @@ const RecordingFieldsSchema = z.object({
 
 export async function POST(request: Request): Promise<Response> {
   try {
-    const user = await requireUser();
+    const user = await requireStudent();
     const form = await request.formData();
     const input = RecordingFieldsSchema.parse({
       bookVersionId: form.get("bookVersionId"),

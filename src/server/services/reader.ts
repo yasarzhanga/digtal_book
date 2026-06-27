@@ -59,7 +59,11 @@ export interface PersonalReport {
   activeSeconds: number;
   visitedChapters: number;
   mediaCompletionRate: number;
+  audioCompletionRate: number;
+  videoCompletionRate: number;
+  modelPanoramaInteractions: number;
   simulationRuns: number;
+  simulationSaveCount: number;
   savedExperiments: { force: number; mass: number; acceleration: number; createdAt: string }[];
   quizAttempts: { score: number; maxScore: number; createdAt: string }[];
   noteCount: number;
@@ -291,10 +295,9 @@ export function getPersonalReport(userId: string, bookVersionId: string): Person
   const state = asRow<{ activeSeconds: number; visitedChapterIdsJson: string }>(
     getDb().prepare("SELECT activeSeconds, visitedChapterIdsJson FROM ReadingState WHERE userId = ? AND bookVersionId = ?").get(userId, bookVersionId)
   );
-  const mediaRows = asRows<{ eventType: string; progress: number | null }>(
-    getDb().prepare("SELECT eventType, progress FROM ActivityEvent WHERE userId = ? AND bookVersionId = ? AND eventType IN ('AUDIO_COMPLETE','VIDEO_COMPLETE','AUDIO_PROGRESS','VIDEO_PROGRESS')").all(userId, bookVersionId)
-  );
-  const progressValues = mediaRows.map((row) => row.eventType.endsWith("COMPLETE") ? 1 : row.progress ?? 0).filter((value) => value > 0);
+  const audioCompletionRate = mediaCompletionRateForPrefix(userId, bookVersionId, "AUDIO");
+  const videoCompletionRate = mediaCompletionRateForPrefix(userId, bookVersionId, "VIDEO");
+  const mediaRates = [audioCompletionRate, videoCompletionRate].filter((value) => value > 0);
   const savedExperiments = asRows<{ force: number; mass: number; acceleration: number; createdAt: string }>(
     getDb().prepare("SELECT force, mass, acceleration, createdAt FROM ExperimentRun WHERE userId = ? AND bookVersionId = ? ORDER BY createdAt DESC").all(userId, bookVersionId)
   );
@@ -304,6 +307,7 @@ export function getPersonalReport(userId: string, bookVersionId: string): Person
   const noteCount = count("Annotation", "userId = ? AND bookVersionId = ?", [userId, bookVersionId]);
   const recordingCount = count("RecordingSubmission", "userId = ? AND bookVersionId = ?", [userId, bookVersionId]);
   const simulationRuns = count("ActivityEvent", "userId = ? AND bookVersionId = ? AND eventType IN ('SIMULATION_RUN','SIMULATION_SAVE')", [userId, bookVersionId]);
+  const modelPanoramaInteractions = count("ActivityEvent", "userId = ? AND bookVersionId = ? AND eventType IN ('MODEL3D_INTERACT','PANORAMA_OPEN','PANORAMA_HOTSPOT_OPEN')", [userId, bookVersionId]);
   const events = asRows<{ eventType: string; chapterId: string | null; nodeId: string | null; occurredAt: string; payloadJson: string | null }>(
     getDb().prepare("SELECT eventType, chapterId, nodeId, occurredAt, payloadJson FROM ActivityEvent WHERE userId = ? AND bookVersionId = ? ORDER BY occurredAt DESC LIMIT 20").all(userId, bookVersionId)
   );
@@ -313,8 +317,12 @@ export function getPersonalReport(userId: string, bookVersionId: string): Person
   return {
     activeSeconds: state?.activeSeconds ?? 0,
     visitedChapters: state ? (JSON.parse(state.visitedChapterIdsJson) as string[]).length : 0,
-    mediaCompletionRate: progressValues.length ? progressValues.reduce((sum, value) => sum + value, 0) / progressValues.length : 0,
+    mediaCompletionRate: mediaRates.length ? mediaRates.reduce((sum, value) => sum + value, 0) / mediaRates.length : 0,
+    audioCompletionRate,
+    videoCompletionRate,
+    modelPanoramaInteractions,
     simulationRuns,
+    simulationSaveCount: savedExperiments.length,
     savedExperiments,
     quizAttempts,
     noteCount,
@@ -328,6 +336,24 @@ export function getPersonalReport(userId: string, bookVersionId: string): Person
     })),
     trend: trendRows
   };
+}
+
+export function mediaCompletionRateForPrefix(userId: string, bookVersionId: string, prefix: "AUDIO" | "VIDEO"): number {
+  const rows = asRows<{ nodeId: string | null; eventType: string; progress: number | null }>(
+    getDb().prepare(`
+      SELECT nodeId, eventType, progress
+      FROM ActivityEvent
+      WHERE userId = ? AND bookVersionId = ? AND eventType IN (?, ?)
+    `).all(userId, bookVersionId, `${prefix}_PROGRESS`, `${prefix}_COMPLETE`)
+  );
+  const maxByNode = new Map<string, number>();
+  for (const row of rows) {
+    const key = row.nodeId ?? `${prefix}:unknown`;
+    const value = row.eventType.endsWith("COMPLETE") ? 1 : row.progress ?? 0;
+    maxByNode.set(key, Math.max(maxByNode.get(key) ?? 0, value));
+  }
+  const values = [...maxByNode.values()].filter((value) => value > 0);
+  return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0;
 }
 
 export function auditNoUnsupportedEventTypes(): boolean {

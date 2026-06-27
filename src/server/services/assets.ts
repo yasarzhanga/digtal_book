@@ -15,6 +15,14 @@ export const AssetUploadInputSchema = z.object({
   kind: AssetKindSchema
 });
 
+export const BufferedAssetInputSchema = z.object({
+  title: z.string().min(1),
+  originalName: z.string().min(1),
+  mimeType: z.string().min(1),
+  kind: AssetKindSchema,
+  buffer: z.instanceof(Buffer)
+});
+
 export function toAsset(row: AssetRow): Asset {
   return AssetSchema.parse({
     id: row.id,
@@ -95,6 +103,53 @@ export async function createUploadedAsset(file: File, input: z.infer<typeof Asse
     file.size,
     relativePath,
     input.title,
+    "",
+    JSON.stringify(metadata),
+    now
+  );
+  const asset = getAsset(assetId);
+  if (!asset) {
+    throw new Error("ASSET_CREATE_FAILED");
+  }
+  return asset;
+}
+
+export async function createBufferedAsset(input: z.input<typeof BufferedAssetInputSchema>, ownerId: string): Promise<Asset> {
+  const parsed = BufferedAssetInputSchema.parse(input);
+  const rule = uploadRules[parsed.kind];
+  if (!rule.mimeTypes.includes(parsed.mimeType)) {
+    throw new Error("UNSUPPORTED_FILE_TYPE");
+  }
+  if (parsed.buffer.byteLength > rule.maxBytes) {
+    throw new Error("FILE_TOO_LARGE");
+  }
+  const assetId = id("asset");
+  const relativePath = `${assetId}${safeExtension(parsed.originalName)}`;
+  const uploadRoot = path.resolve(process.cwd(), "storage/uploads");
+  fs.mkdirSync(uploadRoot, { recursive: true });
+  const absolutePath = path.join(uploadRoot, relativePath);
+  fs.writeFileSync(absolutePath, parsed.buffer);
+  const metadata = {
+    searchText: await extractAssetSearchText({
+      kind: parsed.kind,
+      title: parsed.title,
+      originalName: parsed.originalName,
+      mimeType: parsed.mimeType,
+      description: "",
+      metadata: {}
+    }, absolutePath)
+  };
+  const now = new Date().toISOString();
+  getDb().prepare("INSERT INTO Asset (id, ownerId, kind, assetKey, originalName, mimeType, size, relativePath, title, description, metadataJson, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").run(
+    assetId,
+    ownerId,
+    parsed.kind,
+    assetId,
+    parsed.originalName,
+    parsed.mimeType,
+    parsed.buffer.byteLength,
+    relativePath,
+    parsed.title,
     "",
     JSON.stringify(metadata),
     now

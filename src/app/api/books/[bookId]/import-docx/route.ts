@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { importDocxFixture, importDocxUpload } from "@/server/services/books";
-import { requireUser } from "@/server/auth/session";
+import { ensureBookOwner, requireEditor } from "@/server/auth/guards";
 import { errorResponse, ok, parseJson } from "@/server/http";
 
 const ImportSchema = z.object({ confirm: z.boolean().default(false) });
@@ -15,16 +15,17 @@ interface RouteContext {
 
 export async function POST(request: Request, context: RouteContext): Promise<Response> {
   try {
-    await requireUser();
+    const user = await requireEditor();
     const { bookId } = await context.params;
+    ensureBookOwner(bookId, user.id);
     const contentType = request.headers.get("content-type") ?? "";
     if (contentType.includes("multipart/form-data")) {
       const input = await parseImportForm(request);
       const buffer = Buffer.from(await input.file.arrayBuffer());
-      return ok(await importDocxUpload(bookId, { fileName: input.file.name, buffer, confirm: input.confirm }));
+      return ok(await importDocxUpload(bookId, user.id, { fileName: input.file.name, buffer, confirm: input.confirm }));
     }
     const input = await parseJson(request, ImportSchema);
-    return ok(await importDocxFixture(bookId, input.confirm));
+    return ok(await importDocxFixture(bookId, user.id, input.confirm));
   } catch (error) {
     return errorResponse(error);
   }

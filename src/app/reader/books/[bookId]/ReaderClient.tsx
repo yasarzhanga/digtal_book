@@ -6,6 +6,7 @@ import { BookMarked, ChevronLeft, ChevronRight, ClipboardList, Code2, FlaskConic
 import type { BookSnapshot } from "@/content-engine/schema/document";
 import { DocumentRenderer, type ReaderMode } from "@/content-engine/renderer/DocumentRenderer";
 import { enqueueEvent } from "@/content-engine/tracking/client";
+import type { AnnotationRange } from "@/content-engine/utils/annotations";
 import { ReaderAiPanel } from "./ReaderAiPanel";
 
 interface LiveCurrent {
@@ -33,20 +34,31 @@ interface SelectionMenu {
   text: string;
 }
 
-export function ReaderClient({ bookId, snapshot }: { bookId: string; snapshot: BookSnapshot }) {
+type ReaderAnnotation = AnnotationRange & {
+  chapterId: string;
+  nodeId: string;
+  note: string;
+  createdAt: string;
+};
+
+export function ReaderClient({ bookId, snapshot, initialClassroomId }: { bookId: string; snapshot: BookSnapshot; initialClassroomId?: string }) {
   const [chapterId, setChapterId] = useState(snapshot.chapters[0]?.id ?? "");
   const [mode, setMode] = useState<ReaderMode>("digital");
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResult[]>([]);
   const [theme, setTheme] = useState("light");
   const [fontSize, setFontSize] = useState(18);
+  const [classroomId] = useState(initialClassroomId ?? "");
   const [live, setLive] = useState<LiveCurrent | null>(null);
   const [noteText, setNoteText] = useState("");
+  const [noteMessage, setNoteMessage] = useState("");
+  const [annotations, setAnnotations] = useState<ReaderAnnotation[]>([]);
   const [focusMode, setFocusMode] = useState(false);
   const [selectionMenu, setSelectionMenu] = useState<SelectionMenu | null>(null);
   const [aiPromptRequest, setAiPromptRequest] = useState<{ id: string; text: string } | null>(null);
   const [attendanceMessage, setAttendanceMessage] = useState("");
   const touchStartY = useRef<number | null>(null);
+  const lastActiveAt = useRef(Date.now());
   const chapter = snapshot.chapters.find((item) => item.id === chapterId) ?? snapshot.chapters[0];
   const chapterIndex = Math.max(0, snapshot.chapters.findIndex((item) => item.id === chapter.id));
   const previousChapter = snapshot.chapters[chapterIndex - 1];
@@ -57,8 +69,12 @@ export function ReaderClient({ bookId, snapshot }: { bookId: string; snapshot: B
   useEffect(() => {
     let mounted = true;
     const timer = window.setInterval(async () => {
+      if (!classroomId) {
+        setLive(null);
+        return;
+      }
       try {
-        const response = await fetch("/api/classes/class_physics_1/live/current");
+        const response = await fetch(`/api/classes/${classroomId}/live/current`);
         if (response.ok && mounted) setLive(await response.json() as LiveCurrent);
       } catch {
         // The reader may unmount during Playwright navigation or tab close.
@@ -68,7 +84,60 @@ export function ReaderClient({ bookId, snapshot }: { bookId: string; snapshot: B
       mounted = false;
       window.clearInterval(timer);
     };
-  }, []);
+  }, [classroomId]);
+
+  useEffect(() => {
+    void loadAnnotations();
+  }, [bookId, snapshot.versionId]);
+
+  useEffect(() => {
+    void persistReadingState(0);
+    const markActive = () => {
+      lastActiveAt.current = Date.now();
+    };
+    const activityEvents: (keyof WindowEventMap)[] = ["mousemove", "keydown", "pointerdown", "touchstart", "scroll"];
+    for (const eventName of activityEvents) {
+      window.addEventListener(eventName, markActive, { passive: true });
+    }
+    window.addEventListener("focus", markActive);
+    document.addEventListener("play", markActive, true);
+    document.addEventListener("timeupdate", markActive, true);
+    const timer = window.setInterval(() => {
+      const activeRecently = Date.now() - lastActiveAt.current <= 60_000;
+      if (document.visibilityState === "visible" && document.hasFocus() && activeRecently) {
+        void persistReadingState(10);
+      }
+    }, 10_000);
+    return () => {
+      for (const eventName of activityEvents) {
+        window.removeEventListener(eventName, markActive);
+      }
+      window.removeEventListener("focus", markActive);
+      document.removeEventListener("play", markActive, true);
+      document.removeEventListener("timeupdate", markActive, true);
+      window.clearInterval(timer);
+    };
+  }, [chapter.id, bookId, snapshot.versionId]);
+
+  async function loadAnnotations() {
+    const response = await fetch(`/api/reader/books/${bookId}/annotations`);
+    if (!response.ok) return;
+    const json = await response.json() as { annotations: ReaderAnnotation[] };
+    setAnnotations(json.annotations.map(normalizeAnnotation));
+  }
+
+  async function persistReadingState(activeSecondsDelta: number) {
+    await fetch(`/api/reader/books/${bookId}/state`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        bookVersionId: snapshot.versionId,
+        lastChapterId: chapter.id,
+        lastNodeId: chapter.document.nodes[0]?.nodeId,
+        activeSecondsDelta
+      })
+    });
+  }
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -182,22 +251,54 @@ export function ReaderClient({ bookId, snapshot }: { bookId: string; snapshot: B
   }
 
   async function addNote(color: "yellow" | "green" | "blue" | "pink") {
-    const selection = window.getSelection()?.toString().trim() || "当前段落";
-    await fetch(`/api/reader/books/${bookId}/annotations`, {
+    const selection = readSingleRichTextSelection();
+    if ("error" in selection) {
+      setNoteMessage(selection.error);
+      return;
+    }
+    const response = await fetch(`/api/reader/books/${bookId}/annotations`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         bookVersionId: snapshot.versionId,
         chapterId: chapter.id,
-        nodeId: chapter.document.nodes[0]?.nodeId ?? chapter.id,
-        quote: selection,
-        startOffset: 0,
-        endOffset: selection.length,
+        nodeId: selection.nodeId,
+        quote: selection.quote,
+        startOffset: selection.startOffset,
+        endOffset: selection.endOffset,
         color,
         note: noteText
       })
     });
-    setNoteText("");
+    if (response.ok) {
+      setNoteText("");
+      setNoteMessage("笔记已保存");
+      await loadAnnotations();
+    } else {
+      setNoteMessage("笔记保存失败");
+    }
+  }
+
+  async function editAnnotation(annotation: ReaderAnnotation) {
+    const nextNote = window.prompt("编辑笔记", annotation.note);
+    if (nextNote === null) return;
+    const response = await fetch(`/api/reader/annotations/${annotation.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ note: nextNote })
+    });
+    if (response.ok) {
+      setNoteMessage("笔记已更新");
+      await loadAnnotations();
+    }
+  }
+
+  async function deleteAnnotation(annotationId: string) {
+    const response = await fetch(`/api/reader/annotations/${annotationId}`, { method: "DELETE" });
+    if (response.ok) {
+      setNoteMessage("笔记已删除");
+      await loadAnnotations();
+    }
   }
 
   function speakSelection() {
@@ -211,7 +312,7 @@ export function ReaderClient({ bookId, snapshot }: { bookId: string; snapshot: B
   async function syncTeacher() {
     if (!live?.live?.currentChapterId) return;
     navigate(live.live.currentChapterId, live.live.currentNodeId ?? undefined);
-    enqueueEvent({ bookVersionId: snapshot.versionId, classroomId: "class_physics_1", chapterId: live.live.currentChapterId, nodeId: live.live.currentNodeId ?? undefined, eventType: "TEACHER_SYNC" });
+    enqueueEvent({ bookVersionId: snapshot.versionId, classroomId: classroomId || undefined, chapterId: live.live.currentChapterId, nodeId: live.live.currentNodeId ?? undefined, eventType: "TEACHER_SYNC" });
   }
 
   async function answerLiveQuiz() {
@@ -277,7 +378,7 @@ export function ReaderClient({ bookId, snapshot }: { bookId: string; snapshot: B
           <Link href={`/reader/books/${bookId}/simulations`} prefetch={false}><FlaskConical size={16} /> 仿真模板</Link>
           <Link href={`/reader/books/${bookId}/report`} prefetch={false}><Headphones size={16} /> 学习报告</Link>
         </div>
-        <DocumentRenderer snapshot={snapshot} chapter={chapter} mode={mode} bookId={bookId} classroomId="class_physics_1" onNavigate={navigate} />
+        <DocumentRenderer snapshot={snapshot} chapter={chapter} mode={mode} bookId={bookId} classroomId={classroomId || undefined} annotations={annotations} onNavigate={navigate} />
         <div className="chapter-nav">
           <button type="button" onClick={() => navigateByOffset(-1)} disabled={!previousChapter}>上一节</button>
           <button type="button" onClick={() => navigateByOffset(1)} disabled={!nextChapter}>下一节</button>
@@ -299,7 +400,20 @@ export function ReaderClient({ bookId, snapshot }: { bookId: string; snapshot: B
           <div className="note-colors">
             {(["yellow", "green", "blue", "pink"] as const).map((color) => <button className={color} key={color} type="button" onClick={() => void addNote(color)}>{color}</button>)}
           </div>
+          {noteMessage ? <small>{noteMessage}</small> : null}
           <button type="button" onClick={speakSelection}>朗读选中文本</button>
+          <div className="note-list">
+            {annotations.map((annotation) => (
+              <article className={`note-card ${annotation.color}`} key={annotation.id}>
+                <button type="button" onClick={() => navigate(annotation.chapterId, annotation.nodeId)}>{annotation.quote}</button>
+                {annotation.note ? <p>{annotation.note}</p> : null}
+                <div>
+                  <button type="button" onClick={() => void editAnnotation(annotation)}>编辑</button>
+                  <button type="button" onClick={() => void deleteAnnotation(annotation.id)}>删除</button>
+                </div>
+              </article>
+            ))}
+          </div>
         </section>
         <section className="outline-panel">
           <h3>节内大纲</h3>
@@ -331,4 +445,49 @@ function getDemoLocation(): Promise<{ latitude: number; longitude: number; accur
       { enableHighAccuracy: true, timeout: 1200, maximumAge: 60_000 }
     );
   });
+}
+
+function normalizeAnnotation(annotation: ReaderAnnotation): ReaderAnnotation {
+  const color = ["yellow", "green", "blue", "pink"].includes(annotation.color) ? annotation.color : "yellow";
+  return {
+    ...annotation,
+    color,
+    startOffset: Number(annotation.startOffset) || 0,
+    endOffset: Number(annotation.endOffset) || annotation.quote.length
+  };
+}
+
+function readSingleRichTextSelection(): { nodeId: string; quote: string; startOffset: number; endOffset: number } | { error: string } {
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
+    return { error: "请先在正文中选择一段文字" };
+  }
+  const range = selection.getRangeAt(0);
+  const startBlock = closestRichTextBlock(range.startContainer);
+  const endBlock = closestRichTextBlock(range.endContainer);
+  if (!startBlock || !endBlock) {
+    return { error: "请在正文段落内选择文字" };
+  }
+  if (startBlock !== endBlock) {
+    return { error: "当前 Demo 支持单段落内标注" };
+  }
+  const nodeShell = startBlock.closest<HTMLElement>("[data-node-id]");
+  const nodeId = nodeShell?.dataset.nodeId;
+  if (!nodeId) {
+    return { error: "未找到当前标注位置" };
+  }
+  const quote = range.toString();
+  if (!quote.trim()) {
+    return { error: "请先在正文中选择一段文字" };
+  }
+  const before = range.cloneRange();
+  before.selectNodeContents(startBlock);
+  before.setEnd(range.startContainer, range.startOffset);
+  const startOffset = before.toString().length;
+  return { nodeId, quote, startOffset, endOffset: startOffset + quote.length };
+}
+
+function closestRichTextBlock(node: Node): HTMLElement | null {
+  const element = node instanceof HTMLElement ? node : node.parentElement;
+  return element?.closest<HTMLElement>(".rich-text") ?? null;
 }

@@ -1,6 +1,6 @@
-import { requireUser } from "@/server/auth/session";
+import { ensureClassroomTeacher, requireTeacher } from "@/server/auth/guards";
 import { errorResponse, ok } from "@/server/http";
-import { buildResourceLearningWorkbook, listAssignmentsForTeacher } from "@/server/services/p1";
+import { buildResourceLearningWorkbook } from "@/server/services/p1";
 import { getResourceLearningDetails } from "@/server/services/teaching";
 
 interface RouteContext {
@@ -9,12 +9,9 @@ interface RouteContext {
 
 export async function GET(request: Request, context: RouteContext): Promise<Response> {
   try {
-    const user = await requireUser();
-    if (user.role !== "TEACHER") {
-      throw new Error("FORBIDDEN");
-    }
+    const user = await requireTeacher();
     const { classroomId } = await context.params;
-    listAssignmentsForTeacher(classroomId, user.id);
+    ensureClassroomTeacher(classroomId, user.id);
     const format = new URL(request.url).searchParams.get("format");
     if (format === "xlsx") {
       const buffer = await buildResourceLearningWorkbook(classroomId);

@@ -40,7 +40,7 @@ export function login(email: string, password: string): PublicUser {
 }
 
 export function demoLogin(role: "editor" | "teacher" | "student"): PublicUser {
-  if (process.env.DEMO_MODE === "false") {
+  if (process.env.DEMO_MODE !== "true") {
     throw new Error("DEMO_MODE_DISABLED");
   }
   const email = `${role}@demo.local`;

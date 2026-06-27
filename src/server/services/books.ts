@@ -6,7 +6,7 @@ import { collectAssetIdsFromDocument } from "@/content-engine/utils/assets";
 import { asRow, asRows, getDb, withTransaction } from "@/server/db/client";
 import { id } from "@/server/db/ids";
 import { stringifyJson } from "@/server/db/json";
-import { toAsset } from "@/server/services/assets";
+import { createBufferedAsset, toAsset } from "@/server/services/assets";
 import type { AssetRow, BookRow, BookVersionRow, ChapterRow, DraftDocumentRow } from "@/server/db/types";
 
 export const SaveDocumentInputSchema = z.object({
@@ -30,10 +30,16 @@ export const DocxImportSourceSchema = z.object({
 
 export interface DocxImportResult {
   chapterCount: number;
+  topLevelChapterCount: number;
+  subChapterCount: number;
   mediaCount: number;
+  imageCount: number;
   tableCount: number;
+  linkCount: number;
   createdChapterId?: string;
+  createdChapterIds?: string[];
   html: string;
+  warnings: string[];
 }
 
 export interface EditorChapter {
@@ -224,14 +230,14 @@ export function activateVersion(bookId: string, versionId: string): void {
   getDb().prepare("UPDATE Book SET currentPublishedVersionId = ?, updatedAt = ? WHERE id = ?").run(versionId, new Date().toISOString(), bookId);
 }
 
-export async function importDocxFixture(bookId: string, confirm: boolean): Promise<DocxImportResult> {
+export async function importDocxFixture(bookId: string, ownerId: string, confirm: boolean): Promise<DocxImportResult> {
   mustGetBook(bookId);
   const docxPath = path.resolve(process.cwd(), "starter-assets/imports/sample-physics.docx");
-  const result = await mammoth.convertToHtml({ path: docxPath }, mammothOptions());
-  return importDocxHtml(bookId, "sample-physics.docx", result.value, confirm);
+  const conversion = await convertDocxToHtml({ path: docxPath }, "sample-physics.docx", ownerId, confirm);
+  return importDocxHtml(bookId, "sample-physics.docx", conversion, confirm);
 }
 
-export async function importDocxUpload(bookId: string, input: z.input<typeof DocxImportSourceSchema>): Promise<DocxImportResult> {
+export async function importDocxUpload(bookId: string, ownerId: string, input: z.input<typeof DocxImportSourceSchema>): Promise<DocxImportResult> {
   mustGetBook(bookId);
   const parsed = DocxImportSourceSchema.parse(input);
   if (!parsed.fileName.toLowerCase().endsWith(".docx")) {
@@ -240,54 +246,134 @@ export async function importDocxUpload(bookId: string, input: z.input<typeof Doc
   if (parsed.buffer.byteLength > 25 * 1024 * 1024) {
     throw new Error("DOCX_TOO_LARGE");
   }
-  const result = await mammoth.convertToHtml({ buffer: parsed.buffer }, mammothOptions());
-  return importDocxHtml(bookId, parsed.fileName, result.value, parsed.confirm);
+  const conversion = await convertDocxToHtml({ buffer: parsed.buffer }, parsed.fileName, ownerId, parsed.confirm);
+  return importDocxHtml(bookId, parsed.fileName, conversion, parsed.confirm);
 }
 
-function importDocxHtml(bookId: string, fileName: string, rawHtml: string, confirm: boolean): DocxImportResult {
-  const html = sanitizeImportedHtml(rawHtml || "<p>DOCX 已导入，但没有可见正文。</p>");
-  const headingMatches = [...html.matchAll(/<h[12][^>]*>/g)];
-  const imageMatches = [...html.matchAll(/<img\b/g)];
-  const tableMatches = [...html.matchAll(/<table\b/g)];
+interface DocxHtmlConversion {
+  html: string;
+  imageCount: number;
+  warnings: string[];
+}
+
+interface ImportedSection {
+  title: string;
+  level: 1 | 2;
+  parentIndex: number | null;
+  body: string[];
+}
+
+async function convertDocxToHtml(input: { path: string } | { buffer: Buffer }, fileName: string, ownerId: string, persistImages: boolean): Promise<DocxHtmlConversion> {
+  let imageCount = 0;
+  const warnings: string[] = [];
+  const convertImage = mammoth.images.imgElement(async (image) => {
+    imageCount += 1;
+    const contentType = image.contentType || "application/octet-stream";
+    if (!persistImages) {
+      return { src: `#docx-image-preview-${imageCount}` };
+    }
+    try {
+      if (!supportedDocxImageMime(contentType)) {
+        warnings.push(`图片未提取：第 ${imageCount} 张图片类型 ${contentType} 暂不在本地 Demo 支持范围`);
+        return { src: `#docx-image-not-extracted-${imageCount}` };
+      }
+      const buffer = await image.readAsBuffer();
+      const asset = await createBufferedAsset({
+        title: `${path.basename(fileName, path.extname(fileName))} 图片 ${imageCount}`,
+        originalName: `${path.basename(fileName, path.extname(fileName))}-image-${imageCount}${extensionForMime(contentType)}`,
+        mimeType: contentType,
+        kind: "IMAGE",
+        buffer
+      }, ownerId);
+      return { src: asset.url };
+    } catch {
+      warnings.push(`图片未提取：第 ${imageCount} 张图片读取失败`);
+      return { src: `#docx-image-not-extracted-${imageCount}` };
+    }
+  });
+  const result = await mammoth.convertToHtml(input, mammothOptions(convertImage));
+  const messageWarnings = result.messages.map((message) => message.message).filter((message) => message.trim().length > 0);
+  return {
+    html: result.value,
+    imageCount,
+    warnings: [...warnings, ...messageWarnings]
+  };
+}
+
+function importDocxHtml(bookId: string, fileName: string, conversion: DocxHtmlConversion, confirm: boolean): DocxImportResult {
+  const warningHtml = conversion.warnings.map((warning) => `<p><strong>${escapeHtml(warning)}</strong></p>`).join("");
+  const html = sanitizeImportedHtml(`${conversion.html || "<p>DOCX 已导入，但没有可见正文。</p>"}${warningHtml}`);
+  const sections = splitDocxSections(html, fileName);
+  const tableMatches = [...html.matchAll(/<table\b/gi)];
+  const linkMatches = [...html.matchAll(/<a\b/gi)];
+  const imageMatches = [...html.matchAll(/<img\b/gi)];
   if (!confirm) {
-    return { chapterCount: Math.max(1, headingMatches.length), mediaCount: imageMatches.length, tableCount: tableMatches.length, html };
+    return {
+      chapterCount: sections.length,
+      topLevelChapterCount: sections.filter((section) => section.level === 1).length,
+      subChapterCount: sections.filter((section) => section.level === 2).length,
+      mediaCount: conversion.imageCount || imageMatches.length,
+      imageCount: conversion.imageCount || imageMatches.length,
+      tableCount: tableMatches.length,
+      linkCount: linkMatches.length,
+      html,
+      warnings: conversion.warnings
+    };
   }
   const now = new Date().toISOString();
   const existingCount = getChapters(bookId).length;
-  const chapterId = id("chapter");
-  const title = extractImportTitle(html, fileName);
-  const document = ChapterDocumentSchema.parse({
-    type: "chapterDocument",
-    version: 1,
-    nodes: [
-      { nodeId: `${chapterId}-0-heading`, type: "heading", level: 1, text: title },
-      { nodeId: `${chapterId}-1-richText`, type: "richText", html }
-    ]
-  });
+  const chapterIds = sections.map(() => id("chapter"));
   withTransaction(() => {
-    getDb().prepare("INSERT INTO Chapter (id, bookId, parentId, title, level, sortOrder, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)").run(
-      chapterId,
-      bookId,
-      null,
-      title,
-      1,
-      existingCount,
-      now,
-      now
-    );
-    getDb().prepare("INSERT INTO DraftDocument (id, chapterId, documentJson, plainText, revision, updatedAt) VALUES (?, ?, ?, ?, ?, ?)").run(
-      `draft_${chapterId}`,
-      chapterId,
-      stringifyJson(document),
-      plainText(document),
-      1,
-      now
-    );
+    sections.forEach((section, index) => {
+      const chapterId = chapterIds[index];
+      if (!chapterId) {
+        throw new Error("DOCX_IMPORT_CHAPTER_ID_MISSING");
+      }
+      const bodyHtml = section.body.join("").trim() || "<p>从 DOCX 导入的章节。</p>";
+      const document = ChapterDocumentSchema.parse({
+        type: "chapterDocument",
+        version: 1,
+        nodes: [
+          { nodeId: `${chapterId}-0-heading`, type: "heading", level: section.level, text: section.title },
+          { nodeId: `${chapterId}-1-richText`, type: "richText", html: bodyHtml }
+        ]
+      });
+      getDb().prepare("INSERT INTO Chapter (id, bookId, parentId, title, level, sortOrder, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)").run(
+        chapterId,
+        bookId,
+        section.parentIndex === null ? null : chapterIds[section.parentIndex],
+        section.title,
+        section.level,
+        existingCount + index,
+        now,
+        now
+      );
+      getDb().prepare("INSERT INTO DraftDocument (id, chapterId, documentJson, plainText, revision, updatedAt) VALUES (?, ?, ?, ?, ?, ?)").run(
+        `draft_${chapterId}`,
+        chapterId,
+        stringifyJson(document),
+        plainText(document),
+        1,
+        now
+      );
+    });
   });
-  return { chapterCount: 1, mediaCount: imageMatches.length, tableCount: tableMatches.length, createdChapterId: chapterId, html };
+  return {
+    chapterCount: sections.length,
+    topLevelChapterCount: sections.filter((section) => section.level === 1).length,
+    subChapterCount: sections.filter((section) => section.level === 2).length,
+    mediaCount: conversion.imageCount || imageMatches.length,
+    imageCount: conversion.imageCount || imageMatches.length,
+    tableCount: tableMatches.length,
+    linkCount: linkMatches.length,
+    createdChapterId: chapterIds[0],
+    createdChapterIds: chapterIds,
+    html,
+    warnings: conversion.warnings
+  };
 }
 
-function mammothOptions() {
+function mammothOptions(convertImage?: ReturnType<typeof mammoth.images.imgElement>) {
   return {
     styleMap: [
       "p[style-name='Title'] => h1:fresh",
@@ -295,11 +381,18 @@ function mammothOptions() {
       "p[style-name='Heading 1'] => h1:fresh",
       "p[style-name='Heading 2'] => h2:fresh",
       "p[style-name='Heading 3'] => h3:fresh",
+      "p[style-name='Heading 4'] => h4:fresh",
+      "p[style-name='Heading 5'] => h5:fresh",
+      "p[style-name='Heading 6'] => h6:fresh",
       "p[style-name='标题 1'] => h1:fresh",
       "p[style-name='标题 2'] => h2:fresh",
-      "p[style-name='标题 3'] => h3:fresh"
+      "p[style-name='标题 3'] => h3:fresh",
+      "p[style-name='标题 4'] => h4:fresh",
+      "p[style-name='标题 5'] => h5:fresh",
+      "p[style-name='标题 6'] => h6:fresh"
     ],
-    includeDefaultStyleMap: true
+    includeDefaultStyleMap: true,
+    convertImage
   };
 }
 
@@ -312,12 +405,100 @@ function sanitizeImportedHtml(html: string): string {
     .replace(/\sjavascript:/gi, "");
 }
 
+function splitDocxSections(html: string, fileName: string): ImportedSection[] {
+  const blocks = topLevelBlocks(html);
+  const sections: ImportedSection[] = [];
+  let currentTopLevelIndex: number | null = null;
+  let currentSectionIndex: number | null = null;
+
+  function startSection(level: 1 | 2, title: string, parentIndex: number | null): number {
+    sections.push({ title: title || extractImportTitle(html, fileName), level, parentIndex, body: [] });
+    return sections.length - 1;
+  }
+
+  function ensureTopLevelSection(): number {
+    if (currentTopLevelIndex === null) {
+      currentTopLevelIndex = startSection(1, extractImportTitle(html, fileName), null);
+      currentSectionIndex = currentTopLevelIndex;
+    }
+    return currentTopLevelIndex;
+  }
+
+  for (const block of blocks) {
+    if (block.tag === "h1") {
+      currentTopLevelIndex = startSection(1, block.text, null);
+      currentSectionIndex = currentTopLevelIndex;
+      continue;
+    }
+    if (block.tag === "h2") {
+      const parentIndex = ensureTopLevelSection();
+      currentSectionIndex = startSection(2, block.text, parentIndex);
+      continue;
+    }
+    if (currentSectionIndex === null) {
+      currentSectionIndex = ensureTopLevelSection();
+    }
+    sections[currentSectionIndex]?.body.push(block.html);
+  }
+
+  if (sections.length === 0) {
+    sections.push({ title: extractImportTitle(html, fileName), level: 1, parentIndex: null, body: [html] });
+  }
+  return sections;
+}
+
+function topLevelBlocks(html: string): { tag: string; html: string; text: string }[] {
+  const pattern = /<(h[1-6]|p|ul|ol|table|blockquote|pre)(?:\s[^>]*)?>[\s\S]*?<\/\1>/gi;
+  const blocks: { tag: string; html: string; text: string }[] = [];
+  for (const match of html.matchAll(pattern)) {
+    const raw = match[0];
+    const tag = match[1]?.toLowerCase();
+    if (!tag || !raw.trim()) continue;
+    blocks.push({ tag, html: raw, text: htmlText(raw) });
+  }
+  return blocks.length ? blocks : [{ tag: "p", html: `<p>${escapeHtml(htmlText(html))}</p>`, text: htmlText(html) }];
+}
+
 function extractImportTitle(html: string, fileName: string): string {
   const heading = /<h[1-3][^>]*>([\s\S]*?)<\/h[1-3]>/i.exec(html)?.[1];
-  const title = (heading ? heading.replace(/<[^>]+>/g, " ") : path.basename(fileName, path.extname(fileName)))
+  const title = (heading ? htmlText(heading) : path.basename(fileName, path.extname(fileName)))
     .replace(/\s+/g, " ")
     .trim();
   return title || "DOCX 导入章节";
+}
+
+function supportedDocxImageMime(mimeType: string): boolean {
+  return ["image/png", "image/jpeg", "image/webp", "image/svg+xml"].includes(mimeType);
+}
+
+function extensionForMime(mimeType: string): string {
+  if (mimeType === "image/png") return ".png";
+  if (mimeType === "image/jpeg") return ".jpg";
+  if (mimeType === "image/webp") return ".webp";
+  if (mimeType === "image/svg+xml") return ".svg";
+  return ".bin";
+}
+
+function htmlText(html: string): string {
+  return html
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, "\"")
+    .replace(/&#39;/g, "'")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 export function getCurrentSnapshot(bookId: string): BookSnapshot {
