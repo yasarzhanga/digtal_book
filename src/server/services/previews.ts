@@ -49,16 +49,16 @@ export function detectPreviewAdapter(fileName: string, mimeType: string, kind?: 
     return { adapter: "office-pptx-fallback", mode: "download", title: "演示文稿下载预览" };
   }
   if ([".dwg", ".dxf", ".step", ".stp", ".iges", ".igs"].includes(extension) || /cad|dxf|dwg|step/i.test(mimeType)) {
-    return { adapter: "cad-metadata", mode: "specialist", title: "CAD 工程图适配器", specialist: "cad" };
+    return { adapter: "cad-metadata", mode: "specialist", title: "CAD 工程图识别与降级预览", specialist: "cad" };
   }
   if ([".dcm", ".dicom"].includes(extension) || /dicom/i.test(mimeType)) {
-    return { adapter: "dicom-metadata", mode: "specialist", title: "DICOM 影像适配器", specialist: "dicom" };
+    return { adapter: "dicom-metadata", mode: "specialist", title: "DICOM 影像识别与降级预览", specialist: "dicom" };
   }
   if ([".vsdx", ".vsd"].includes(extension) || /visio/i.test(mimeType)) {
-    return { adapter: "visio-metadata", mode: "specialist", title: "Visio 流程图适配器", specialist: "visio" };
+    return { adapter: "visio-metadata", mode: "specialist", title: "Visio 流程图识别与降级预览", specialist: "visio" };
   }
   if (kind === "SCORM" || kind === "H5P") {
-    return { adapter: "learning-package-launch", mode: "package", title: `${kind} 本地包启动预览` };
+    return { adapter: "learning-package-launch", mode: "package", title: `${kind} 本地包识别与降级预览` };
   }
   return { adapter: "download-fallback", mode: "download", title: "安全下载预览" };
 }
@@ -103,14 +103,14 @@ export async function getAssetPreview(assetId: string): Promise<AssetPreview> {
   if (adapter.mode === "specialist") {
     return AssetPreviewSchema.parse({
       ...base,
-      message: `${adapter.title} 已识别文件类型。当前演示提供元数据、下载和后续接入真实渲染服务的稳定入口，不伪装完整专业阅片/制图能力。`
+      message: `${adapter.title} 已识别文件类型。当前演示提供元数据、下载和后续接入真实渲染服务的稳定入口，不伪装完整渲染、专业阅片或制图能力。`
     });
   }
 
   if (adapter.mode === "package") {
     return AssetPreviewSchema.parse({
       ...base,
-      message: "本地学习资源包已就绪，可启动或下载到兼容播放器。"
+      message: "本地学习资源包已识别。当前 Demo 提供启动入口和下载链路，不内置完整 SCORM Runtime 或 H5P Player。"
     });
   }
 

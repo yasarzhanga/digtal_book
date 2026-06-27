@@ -10,6 +10,7 @@ declare module "react" {
         reveal?: string;
         "camera-controls"?: boolean | string;
         "auto-rotate"?: boolean | string;
+        "camera-orbit"?: string;
         "interaction-prompt"?: string;
         "shadow-intensity"?: string;
         exposure?: string;

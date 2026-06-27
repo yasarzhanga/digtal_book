@@ -34,6 +34,8 @@ interface SelectionMenu {
   text: string;
 }
 
+type AnnotationSelection = { nodeId: string; quote: string; startOffset: number; endOffset: number };
+
 type ReaderAnnotation = AnnotationRange & {
   chapterId: string;
   nodeId: string;
@@ -59,6 +61,7 @@ export function ReaderClient({ bookId, snapshot, initialClassroomId }: { bookId:
   const [attendanceMessage, setAttendanceMessage] = useState("");
   const touchStartY = useRef<number | null>(null);
   const lastActiveAt = useRef(Date.now());
+  const lastAnnotationSelection = useRef<AnnotationSelection | null>(null);
   const chapter = snapshot.chapters.find((item) => item.id === chapterId) ?? snapshot.chapters[0];
   const chapterIndex = Math.max(0, snapshot.chapters.findIndex((item) => item.id === chapter.id));
   const previousChapter = snapshot.chapters[chapterIndex - 1];
@@ -89,6 +92,17 @@ export function ReaderClient({ bookId, snapshot, initialClassroomId }: { bookId:
   useEffect(() => {
     void loadAnnotations();
   }, [bookId, snapshot.versionId]);
+
+  useEffect(() => {
+    const rememberSelection = () => {
+      const selection = readSingleRichTextSelection();
+      if (!("error" in selection)) {
+        lastAnnotationSelection.current = selection;
+      }
+    };
+    document.addEventListener("selectionchange", rememberSelection);
+    return () => document.removeEventListener("selectionchange", rememberSelection);
+  }, []);
 
   useEffect(() => {
     void persistReadingState(0);
@@ -251,9 +265,10 @@ export function ReaderClient({ bookId, snapshot, initialClassroomId }: { bookId:
   }
 
   async function addNote(color: "yellow" | "green" | "blue" | "pink") {
-    const selection = readSingleRichTextSelection();
-    if ("error" in selection) {
-      setNoteMessage(selection.error);
+    const currentSelection = readSingleRichTextSelection();
+    const selection = "error" in currentSelection ? lastAnnotationSelection.current : currentSelection;
+    if (!selection) {
+      setNoteMessage("error" in currentSelection ? currentSelection.error : "请先在正文中选择一段文字");
       return;
     }
     const response = await fetch(`/api/reader/books/${bookId}/annotations`, {
@@ -273,6 +288,8 @@ export function ReaderClient({ bookId, snapshot, initialClassroomId }: { bookId:
     if (response.ok) {
       setNoteText("");
       setNoteMessage("笔记已保存");
+      lastAnnotationSelection.current = null;
+      window.getSelection()?.removeAllRanges();
       await loadAnnotations();
     } else {
       setNoteMessage("笔记保存失败");

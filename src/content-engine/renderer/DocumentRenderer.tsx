@@ -8,6 +8,7 @@ import type { Asset } from "@/content-engine/schema/assets";
 import type { BookSnapshot, SnapshotChapter } from "@/content-engine/schema/document";
 import type { ChartNode, ContentNode, PhysicsSimulationNode, QuizQuestion, QuizSetNode } from "@/content-engine/schema/nodes";
 import { applyAnnotationMarksToHtml, type AnnotationRange } from "@/content-engine/utils/annotations";
+import { buildPieSlices } from "@/content-engine/utils/chart";
 import { acceleration, sampleMotion } from "@/content-engine/utils/simulation";
 import { trackWithContext } from "@/content-engine/tracking/client";
 
@@ -347,6 +348,7 @@ function ChartNodeView({ node, chapterId, track, staticOnly = false }: { node: C
   const max = Math.max(...node.items.map((item) => item.value), 1);
   const width = 620;
   const height = 260;
+  const pieSlices = node.chartType === "pie" ? buildPieSlices(node.items, width, height) : [];
   const points = node.items.map((item, index) => {
     const x = 50 + (index / Math.max(node.items.length - 1, 1)) * (width - 100);
     const y = height - 40 - (item.value / max) * (height - 90);
@@ -356,10 +358,14 @@ function ChartNodeView({ node, chapterId, track, staticOnly = false }: { node: C
     <section className={`media-card chart-card ${node.theme}`}>
       <h3>{node.title}</h3>
       <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={node.title}>
-        <line x1="45" y1="25" x2="45" y2={height - 40} />
-        <line x1="45" y1={height - 40} x2={width - 30} y2={height - 40} />
+        {node.chartType !== "pie" ? (
+          <>
+            <line x1="45" y1="25" x2="45" y2={height - 40} />
+            <line x1="45" y1={height - 40} x2={width - 30} y2={height - 40} />
+          </>
+        ) : null}
         {!hidden && node.chartType === "line" ? <polyline points={points.map((point) => `${point.x},${point.y}`).join(" ")} fill="none" stroke={node.color} strokeWidth="4" /> : null}
-        {!hidden && points.map((point) => (
+        {!hidden && node.chartType !== "pie" && points.map((point) => (
           <g key={point.label}>
             {node.chartType === "bar" ? <rect x={point.x - 20} y={point.y} width="40" height={height - 40 - point.y} fill={node.color} /> : <circle cx={point.x} cy={point.y} r="7" fill={node.color} />}
             <title>{point.label}: {point.value}</title>
@@ -367,10 +373,17 @@ function ChartNodeView({ node, chapterId, track, staticOnly = false }: { node: C
             <text x={point.x} y={point.y - 10} textAnchor="middle">{point.value}</text>
           </g>
         ))}
+        {!hidden && node.chartType === "pie" && pieSlices.map((slice) => (
+          <g key={slice.label}>
+            <path d={slice.path} fill={slice.color} stroke="#fff" strokeWidth="2" />
+            <title>{slice.label}: {slice.value} ({Math.round(slice.percentage * 100)}%)</title>
+            {slice.percentage > 0.08 ? <text x={slice.labelX} y={slice.labelY} textAnchor="middle">{Math.round(slice.percentage * 100)}%</text> : null}
+          </g>
+        ))}
       </svg>
       <div className="media-actions">
         {node.showLegend ? <button type="button" onClick={() => { setHidden((value) => !value); track({ eventType: "CHART_INTERACT", chapterId, nodeId: node.nodeId, payload: { action: "legend-toggle" } }); }}>图例筛选</button> : null}
-        {!staticOnly ? <button type="button" onClick={() => downloadChartSvg(node.nodeId)}><Download size={16} /> 下载 PNG</button> : null}
+        {!staticOnly ? <button type="button" onClick={() => downloadChartSvg(node.nodeId)}><Download size={16} /> 下载 SVG</button> : null}
       </div>
     </section>
   );
@@ -435,18 +448,29 @@ function SimulationNode({ node, chapterId, bookId, snapshot, track }: { node: Ph
 function ModelNode({ node, asset, chapterId, track }: { node: Extract<ContentNode, { type: "model3d" }>; asset?: Asset; chapterId: string; track: ReturnType<typeof trackWithContext> }) {
   const [auto, setAuto] = useState(node.autoRotate);
   const [hotspot, setHotspot] = useState<(typeof node.hotspots)[number] | null>(null);
+  const modelRef = useRef<(HTMLElement & { cameraOrbit?: string; resetTurntableRotation?: () => void; jumpCameraToGoal?: () => void }) | null>(null);
   useEffect(() => {
     void import("@google/model-viewer");
   }, []);
+  function resetCamera() {
+    const model = modelRef.current;
+    if (model) {
+      model.cameraOrbit = node.initialCamera ?? "0deg 75deg 4m";
+      model.resetTurntableRotation?.();
+      model.jumpCameraToGoal?.();
+    }
+    track({ eventType: "MODEL3D_INTERACT", chapterId, nodeId: node.nodeId, payload: { action: "reset" } });
+  }
   if (!asset) return <MissingAsset id={node.assetId} />;
   return (
     <section className="media-card model-card">
       <h3>{node.title}</h3>
-      <model-viewer src={asset.url} alt={node.title} poster="/api/assets/asset_forceDiagram/file" reveal="auto" camera-controls auto-rotate={auto ? "true" : undefined} interaction-prompt="none" shadow-intensity="0.5" onMouseDown={() => track({ eventType: "MODEL3D_INTERACT", chapterId, nodeId: node.nodeId, payload: { action: "drag" } })} />
+      <model-viewer ref={modelRef} src={asset.url} alt={node.title} poster="/api/assets/asset_forceDiagram/file" reveal="auto" camera-controls auto-rotate={auto ? "true" : undefined} interaction-prompt="none" shadow-intensity="0.5" camera-orbit={node.initialCamera} onMouseDown={() => track({ eventType: "MODEL3D_INTERACT", chapterId, nodeId: node.nodeId, payload: { action: "drag" } })} />
       <p>{node.description}</p>
       <div className="media-actions">
         <button type="button" onClick={() => setAuto((value) => !value)}>自动旋转 {auto ? "开" : "关"}</button>
-        <button type="button" onClick={() => track({ eventType: "MODEL3D_INTERACT", chapterId, nodeId: node.nodeId, payload: { action: "reset" } })}><RotateCcw size={16} /> 重置视角</button>
+        <button type="button" onClick={resetCamera}><RotateCcw size={16} /> 重置视角</button>
+        <button type="button" onClick={() => { void modelRef.current?.requestFullscreen(); track({ eventType: "MODEL3D_INTERACT", chapterId, nodeId: node.nodeId, payload: { action: "fullscreen" } }); }}><Expand size={16} /> 全屏</button>
         {node.hotspots.map((item) => <button key={item.id ?? item.title} type="button" onClick={() => { setHotspot(item); track({ eventType: "MODEL3D_INTERACT", chapterId, nodeId: node.nodeId, payload: { hotspot: item.title } }); }}>{item.title}</button>)}
       </div>
       {hotspot ? <div className="inline-popover"><strong>{hotspot.title}</strong><p>{hotspot.body}</p><button type="button" onClick={() => setHotspot(null)}>关闭</button></div> : null}
@@ -458,12 +482,28 @@ function PanoramaNode({ node, asset, chapterId, track }: { node: Extract<Content
   const [yaw, setYaw] = useState(node.initialYaw);
   const [zoom, setZoom] = useState(100);
   const [hotspot, setHotspot] = useState<(typeof node.hotspots)[number] | null>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const stageRef = useRef<HTMLDivElement | null>(null);
   const dragging = useRef(false);
+  useEffect(() => {
+    const listener = () => setIsFullscreen(document.fullscreenElement === stageRef.current);
+    document.addEventListener("fullscreenchange", listener);
+    return () => document.removeEventListener("fullscreenchange", listener);
+  }, []);
+  async function toggleFullscreen() {
+    if (document.fullscreenElement === stageRef.current) {
+      await document.exitFullscreen();
+    } else {
+      await stageRef.current?.requestFullscreen();
+      track({ eventType: "PANORAMA_OPEN", chapterId, nodeId: node.nodeId, payload: { action: "fullscreen" } });
+    }
+  }
   if (!asset) return <MissingAsset id={node.assetId} />;
   return (
     <section className="media-card panorama-card">
       <h3>{node.title}</h3>
       <div
+        ref={stageRef}
         className="panorama-stage"
         style={{ backgroundImage: `url(${asset.url})`, backgroundPositionX: `${50 + yaw / 3.6}%`, backgroundSize: `${zoom}% auto` }}
         onPointerDown={() => { dragging.current = true; track({ eventType: "PANORAMA_OPEN", chapterId, nodeId: node.nodeId }); }}
@@ -484,6 +524,7 @@ function PanoramaNode({ node, asset, chapterId, track }: { node: Extract<Content
       <div className="media-actions">
         <label>缩放 <input type="range" min="100" max="180" value={zoom} onChange={(event) => setZoom(Number(event.target.value))} /></label>
         <button type="button" onClick={() => setYaw(node.initialYaw)}><RotateCcw size={16} /> 重置视角</button>
+        <button type="button" onClick={() => void toggleFullscreen()}><Expand size={16} /> {isFullscreen ? "退出全屏" : "全屏"}</button>
       </div>
       {hotspot ? <div className="inline-popover"><strong>{hotspot.title}</strong><p>{hotspot.body}</p><button type="button" onClick={() => setHotspot(null)}>关闭</button></div> : null}
     </section>
@@ -672,16 +713,23 @@ function RecordingNode({ node, chapterId, bookId, snapshot, track }: { node: Ext
   const [chunks, setChunks] = useState<Blob[]>([]);
   const [url, setUrl] = useState<string | null>(null);
   const [status, setStatus] = useState("未开始");
+  const chunksRef = useRef<Blob[]>([]);
   async function start() {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const recorder = new MediaRecorder(stream);
-      recorder.ondataavailable = (event) => setChunks((current) => [...current, event.data]);
+      chunksRef.current = [];
+      recorder.ondataavailable = (event) => {
+        if (!event.data.size) return;
+        chunksRef.current = [...chunksRef.current, event.data];
+        setChunks(chunksRef.current);
+      };
       recorder.onstop = () => {
-        const blob = new Blob(chunks, { type: "audio/webm" });
+        const blob = new Blob(chunksRef.current, { type: "audio/webm" });
         setUrl(URL.createObjectURL(blob));
       };
       setChunks([]);
+      setUrl(null);
       recorder.start();
       setMediaRecorder(recorder);
       setStatus("录音中");
@@ -696,14 +744,19 @@ function RecordingNode({ node, chapterId, bookId, snapshot, track }: { node: Ext
   }
   async function submit() {
     const form = new FormData();
-    const blob = chunks.length ? new Blob(chunks, { type: "audio/webm" }) : new Blob(["demo recording"], { type: "audio/webm" });
+    const recordedChunks = chunksRef.current.length ? chunksRef.current : chunks;
+    const usingSample = recordedChunks.length === 0;
+    const blob = usingSample ? new Blob(["demo recording"], { type: "audio/webm" }) : new Blob(recordedChunks, { type: "audio/webm" });
+    if (usingSample) {
+      setStatus("示例片段仅用于无麦克风环境验证链路，正在提交。");
+    }
     form.set("file", blob, "recording.webm");
     form.set("bookVersionId", snapshot.versionId);
     form.set("chapterId", chapterId);
     form.set("nodeId", node.nodeId);
     form.set("durationSeconds", String(Math.max(1, node.recommendedSeconds)));
     await fetch(`/api/reader/books/${bookId}/recordings`, { method: "POST", body: form });
-    setStatus("已提交到学习报告");
+    setStatus(usingSample ? "已提交示例片段到学习报告" : "已提交到学习报告");
     track({ eventType: "RECORDING_SUBMIT", chapterId, nodeId: node.nodeId, durationSeconds: node.recommendedSeconds });
   }
   return (

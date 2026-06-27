@@ -132,7 +132,7 @@ export function listTeacherCourses(teacherId: string): { id: string; name: strin
 }
 
 export function listStudentClassrooms(studentId: string): { id: string; name: string; joinCode: string; courseName: string; bookId: string }[] {
-  return asRows<{ id: string; name: string; joinCode: string; courseName: string; bookId: string }>(
+  const rows = asRows<{ id: string; name: string; joinCode: string; courseName: string; bookId: string }>(
     getDb().prepare(`
       SELECT Classroom.id, Classroom.name, Classroom.joinCode, Course.name AS courseName, Course.bookId
       FROM Enrollment
@@ -142,6 +142,13 @@ export function listStudentClassrooms(studentId: string): { id: string; name: st
       ORDER BY Classroom.createdAt DESC
     `).all(studentId)
   );
+  return rows.map((row) => ({
+    id: row.id,
+    name: row.name,
+    joinCode: row.joinCode,
+    courseName: row.courseName,
+    bookId: row.bookId
+  }));
 }
 
 export function getStudentClassroomForBook(studentId: string, bookId: string): string | null {

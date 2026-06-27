@@ -1,6 +1,6 @@
 # PROGRESS
 
-更新时间：2026-06-26
+更新时间：2026-06-27
 
 ## 当前状态
 
@@ -16,8 +16,20 @@
 - 第五阶段脑图和知识图谱升级已完成本轮闭环：笔记脑图可编辑并持久化到 SQLite，刷新恢复；知识图谱支持关系图/学习路径/习题联动三模式、节点搜索、原文定位和题组跳转。
 - 第六阶段文件在线预览体系已完成本轮闭环：资源预览服务、预览 API、资源详情页、阅读器附件内嵌预览、PDF 原生预览、DOCX 本地 HTML 转换、XLSX 网格预览、SCORM/H5P 启动降级、CAD/DICOM/Visio 专业格式识别与安全降级均已进入测试。
 - 第七阶段教学系统生产化已完成本轮闭环：课程/班级 CRUD、二维码入班链接、`/join` 入班页、地理位置签到、签到距离记录、资源学习明细和 XLSX 导出已接入教师端并进入 E2E。
-- 第八阶段云平台和安全底座已完成本轮闭环：`proxy.ts` HTTPS/安全头、租户 RBAC、平台队列、SQLite 备份、对象存储本地适配、外部登录配置状态、PostgreSQL 迁移骨架、云化说明和 readiness/backup API 已进入测试。
+- 第八阶段云化和安全相关仅作为本地 Demo readiness：`proxy.ts` 安全头、租户 RBAC 服务、平台队列、SQLite 备份、对象存储本地适配、外部登录配置状态、PostgreSQL 迁移骨架和云化说明已进入测试；不声称为生产云服务。
 - 资源检索已补齐文件内容索引：DOCX/XLSX/TEXT/VTT 上传和种子会生成 `metadata.searchText`，资源中心和教材搜索可按文件正文命中；已修复 DOCX 导入刷新竞态和富媒体自动保存标记。
+
+## Beta 加固冲刺
+
+| 检查点 | 目标 | 已完成代码 | 验证命令/证据 | 失败项 | 剩余风险 |
+|---|---|---|---|---|---|
+| 1. 验证口径可信 | `verify:demo` 内部执行 reset/lint/typecheck/test/e2e/build 并检查三尺寸截图 | `scripts/verify-demo.ts` 已改为顺序执行完整命令链 | `npm run verify:demo` 于 2026-06-27 11:25 通过，内部完成 reset/lint/typecheck/test/e2e/build 和截图检查 | 暂无 | 无 |
+| 2. 权限和归属 | 编辑、教师、学生 API 有统一角色与归属校验 | `src/server/auth/guards.ts`；编辑/教师/学生核心 API 已接入守卫；`DEMO_MODE` 仅显式 true 开启 | `npm run test`，权限用例覆盖学生不能发布/开课、编辑者不能签到、未入班不能答题签到 | 暂无 | 仍需 E2E 验证角色流程 |
+| 3. DOCX 快速组稿 | H1/H2 拆章节、预览统计、确认导入、表格和图片处理 | `src/server/services/books.ts`、导入 API、编辑器导入面板 | `npm run test` 覆盖上传导入；E2E 已补预览和确认路径 | 暂无 | 复杂 Word 浮动布局和公式 OCR 明确为 Demo 外 |
+| 4. 标注与学习数据 | 标注绑定真实 `.rich-text` offset，刷新恢复；学习时长用前台活跃心跳；媒体取每节点最大进度 | `annotations.ts`、`ReaderClient.tsx`、`DocumentRenderer.tsx`、报告聚合服务 | `npm run test` 覆盖 offset、心跳和媒体最大进度；`npm run test:e2e` 覆盖真实选区、刷新恢复和笔记回跳 | 暂无 | 无 |
+| 5. 教学链路泛化 | 学生可入新班级，阅读器从 query/班级上下文获取 classroomId | `/student/classes`、动态 `classroomId` 阅读入口、教师/学生 E2E 流程 | `npm run test:e2e` 覆盖新建班级、邀请码入班、同步、随堂题、签到和统计 | 暂无 | 无 |
+| 6. 富媒体瑕疵 | 图表导出文案一致、pie 真饼图、3D 重置视角、全景全屏、录音 chunks、资源降级文案 | `chart.ts`、`DocumentRenderer.tsx`、`previews.ts`、`EditorClient.tsx`、CSS | `npm run test` 覆盖饼图和降级文案；`npm run test:e2e` 覆盖下载 SVG、3D 重置、热点、全景按钮和录音提交 | 暂无 | 无 |
+| 7. 文档和演示体验 | README/PROGRESS 区分已验证、演示级适配、降级预览和非生产能力 | `README.md`、本节 | README 已回填 2026-06-27 最终命令结果；截图已生成到 `artifacts/demo-verification` | 暂无 | 无 |
 
 ## 验收矩阵进度
 
@@ -56,17 +68,17 @@
 | 5. 脑图和知识图谱升级 | 完成 | `MindMapState` 表、脑图 Zod Schema、GET/PUT API、可编辑脑图页面、图谱关系图/学习路径/习题联动模式、图谱搜索与定位 | 进入阶段 6 文件在线预览体系 |
 | 6. 文件在线预览体系 | 完成 | `previews` 服务、`/api/assets/[assetId]/preview`、资源详情页、阅读器附件预览、PDF iframe、DOCX HTML、XLSX 网格、SCORM/H5P 包降级、CAD/DICOM/Visio 识别降级 | 进入阶段 7 教学系统生产化 |
 | 7. 教学系统生产化 | 完成 | 课程/班级 CRUD API 与教师页、二维码入班链接、`/join` 入班页、地理签到 Schema/DB/API/学生按钮、教师签到距离、资源学习明细服务/API/班级报告/XLSX 导出 | 无 |
-| 8. 云平台和安全 | 完成 | `Tenant/TenantMembership/PlatformJob/BackupRecord` 表、租户 RBAC 服务、队列服务、SQLite 备份、对象存储本地适配、`/api/platform/readiness`、`proxy.ts` HTTPS/安全头、外部短信/微信配置探测、PostgreSQL 迁移骨架、`docs/CLOUD_READINESS.md` | 生产远端 PostgreSQL/S3/SMS/微信真实 SDK 接入需部署环境和密钥 |
+| 8. 云化和安全 readiness | 演示级完成 | `Tenant/TenantMembership/PlatformJob/BackupRecord` 表、租户 RBAC 服务、队列服务、SQLite 备份、对象存储本地适配、`/api/platform/readiness`、`proxy.ts` 安全头、外部短信/微信配置探测、PostgreSQL 迁移骨架、`docs/CLOUD_READINESS.md` | 生产远端 PostgreSQL/S3/SMS/微信真实 SDK 接入需部署环境和密钥；不作为生产云服务声明 |
 
-## 必跑命令
+## Beta 必跑命令
 
-- [x] `npm run db:reset`
-- [x] `npm run lint`
-- [x] `npm run typecheck`
-- [x] `npm run test`（本轮 25 passed；新增云化底座、RBAC、队列、备份、对象存储和资源正文索引覆盖）
-- [x] `npm run test:e2e`（5 passed；覆盖编辑发布、阅读富媒体、教学同步/签到、P1 综合、资源正文搜索和截图）
-- [x] `npm run build`
-- [x] `npm run verify:demo`（通过；截图已生成到 `artifacts/demo-verification`）
+- [x] `npm run db:reset`（2026-06-27 11:03 通过；`verify:demo` 内部再次通过）
+- [x] `npm run lint`（2026-06-27 11:22 通过）
+- [x] `npm run typecheck`（2026-06-27 11:22 通过）
+- [x] `npm run test`（2026-06-27 11:22 通过，31 passed）
+- [x] `npm run test:e2e`（2026-06-27 11:25 通过，5 passed）
+- [x] `npm run build`（2026-06-27 11:25 通过）
+- [x] `npm run verify:demo`（2026-06-27 11:25 通过；内部执行 reset/lint/typecheck/test/e2e/build 并检查三尺寸截图）
 
 ## 已知限制
 

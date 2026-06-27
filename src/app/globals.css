@@ -993,6 +993,14 @@ model-viewer {
   background: #eef3f1;
 }
 
+model-viewer:fullscreen,
+.panorama-stage:fullscreen {
+  width: 100vw;
+  height: 100vh;
+  max-height: none;
+  border-radius: 0;
+}
+
 .panorama-stage {
   height: 360px;
   max-height: 460px;

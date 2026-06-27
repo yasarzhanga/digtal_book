@@ -158,15 +158,26 @@ export async function resetDemoDatabase(): Promise<void> {
 
 function resetStorage(): void {
   const uploadRoot = path.resolve(process.cwd(), "storage/uploads");
-  fs.rmSync(uploadRoot, { recursive: true, force: true });
-  fs.rmSync(path.resolve(process.cwd(), "storage/object-store"), { recursive: true, force: true });
-  fs.rmSync(path.resolve(process.cwd(), "storage/backups"), { recursive: true, force: true });
+  emptyDirectory(uploadRoot);
+  removePath(path.resolve(process.cwd(), "storage/object-store"));
+  removePath(path.resolve(process.cwd(), "storage/backups"));
   fs.mkdirSync(uploadRoot, { recursive: true });
   fs.writeFileSync(path.join(uploadRoot, ".gitkeep"), "");
   const dbPath = path.resolve(process.cwd(), process.env.DATABASE_PATH ?? "storage/demo.sqlite");
-  fs.rmSync(dbPath, { force: true });
-  fs.rmSync(`${dbPath}-shm`, { force: true });
-  fs.rmSync(`${dbPath}-wal`, { force: true });
+  removePath(dbPath);
+  removePath(`${dbPath}-shm`);
+  removePath(`${dbPath}-wal`);
+}
+
+function emptyDirectory(directoryPath: string): void {
+  fs.mkdirSync(directoryPath, { recursive: true });
+  for (const entry of fs.readdirSync(directoryPath)) {
+    removePath(path.join(directoryPath, entry));
+  }
+}
+
+function removePath(targetPath: string): void {
+  fs.rmSync(targetPath, { recursive: true, force: true, maxRetries: 8, retryDelay: 100 });
 }
 
 async function seedAssets(now: string): Promise<Asset[]> {

@@ -23,6 +23,7 @@ import {
   getLiveQuizResults,
   getResourceLearningDetails,
   joinClassroom,
+  listStudentClassrooms,
   listTeacherCourses,
   respondLiveQuiz,
   signAttendance,
@@ -75,6 +76,7 @@ import {
 import { recordEvent } from "@/server/services/events";
 import { collectAssetIdsFromDocument } from "@/content-engine/utils/assets";
 import { applyAnnotationMarksToHtml } from "@/content-engine/utils/annotations";
+import { buildPieSlices } from "@/content-engine/utils/chart";
 import { acceleration, sampleMotion } from "@/content-engine/utils/simulation";
 import { scoreQuiz } from "@/content-engine/utils/quiz";
 import { resetDemoDatabase } from "../../scripts/db-reset";
@@ -254,6 +256,7 @@ describe("teaching loop", () => {
     const extraClassroom = createClassroomForCourse("user_teacher", created.id, { name: "单测二班" });
     expect(extraClassroom.joinCode).toMatch(/^C\d{6}$/);
     expect(joinClassroom("user_student_8", "UNIT77")).toBe(created.classroomId);
+    expect(Object.getPrototypeOf(listStudentClassrooms("user_student_8")[0])).toBe(Object.prototype);
     const rows = listTeacherCourses("user_teacher").filter((course) => course.id === created.id);
     expect(rows.some((course) => course.name === "单测课程改名" && course.classroomName === "单测一班改名")).toBe(true);
     deleteCourse("user_teacher", created.id);
@@ -474,6 +477,10 @@ describe("P1 workflows", () => {
     expect(chart.title).toBe("实验趋势");
     expect(chart.items).toEqual([{ label: "2N", value: 1 }, { label: "4N", value: 2 }, { label: "6N", value: 3 }]);
     expect(chart.chartType).toBe("line");
+    const slices = buildPieSlices([{ label: "音频", value: 2 }, { label: "视频", value: 3 }], 300, 200);
+    expect(slices).toHaveLength(2);
+    expect(slices[0].path).toContain("A ");
+    expect(slices.reduce((sum, slice) => sum + slice.percentage, 0)).toBeCloseTo(1);
 
     const previousAiKey = process.env.AI_API_KEY;
     const previousOpenAiKey = process.env.OPENAI_API_KEY;
@@ -499,6 +506,7 @@ describe("P1 workflows", () => {
     expect(docxPreview.html).toContain("牛顿第二定律");
 
     expect(detectPreviewAdapter("drawing.dwg", "application/acad").adapter).toBe("cad-metadata");
+    expect(detectPreviewAdapter("drawing.dwg", "application/acad").title).toContain("识别与降级预览");
     expect(detectPreviewAdapter("scan.dcm", "application/dicom").adapter).toBe("dicom-metadata");
     expect(detectPreviewAdapter("flow.vsdx", "application/vnd.ms-visio.drawing").adapter).toBe("visio-metadata");
   });

@@ -791,7 +791,7 @@ function NodeInspector({ node, assets, bookId, onChange }: { node: ContentNode; 
               <select value={node.chartType} onChange={(event) => onChange({ ...node, chartType: event.target.value as "line" | "bar" | "pie" })}>
                 <option value="line">折线</option>
                 <option value="bar">柱状</option>
-                <option value="pie">点图</option>
+                <option value="pie">饼图</option>
               </select>
             </label>
             <label>X 轴<input value={node.xLabel} onChange={(event) => onChange({ ...node, xLabel: event.target.value })} /></label>

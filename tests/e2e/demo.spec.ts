@@ -111,6 +111,34 @@ test("student switches modes and operates rich media, simulation, quiz, notes an
   await page.getByRole("button", { name: "传统教材视图" }).click();
   await expect(page.getByText(/资源二维码/).first()).toBeVisible();
   await page.getByRole("button", { name: "数字教材视图" }).click();
+  await page.evaluate(() => {
+    const richText = document.querySelector(".rich-text");
+    if (!richText) throw new Error("rich text block not found");
+    const walker = document.createTreeWalker(richText, NodeFilter.SHOW_TEXT);
+    let target: Text | null = null;
+    while (walker.nextNode()) {
+      const node = walker.currentNode as Text;
+      if (node.data.includes("牛顿第二定律")) {
+        target = node;
+        break;
+      }
+    }
+    if (!target) throw new Error("annotation target not found");
+    const start = target.data.indexOf("牛顿第二定律");
+    const range = document.createRange();
+    range.setStart(target, start);
+    range.setEnd(target, start + "牛顿第二定律".length);
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+  });
+  await page.getByPlaceholder("给选中文本添加笔记").fill("课堂演示笔记");
+  await page.getByRole("button", { name: "yellow" }).click();
+  await expect(page.locator("mark.annotation-mark.yellow", { hasText: "牛顿第二定律" })).toBeVisible();
+  await page.reload();
+  await expect(page.locator("mark.annotation-mark.yellow", { hasText: "牛顿第二定律" })).toBeVisible();
+  await page.locator(".note-card", { hasText: "课堂演示笔记" }).getByRole("button", { name: "牛顿第二定律" }).click();
+  await expect(page.locator(".rich-text", { hasText: "牛顿第二定律" }).first()).toBeVisible();
   await page.locator(".hotspot").first().click();
   await expect(page.getByText("水平拉力 F")).toBeVisible();
   await page.getByRole("button", { name: "下一张" }).click();
@@ -129,8 +157,12 @@ test("student switches modes and operates rich media, simulation, quiz, notes an
   await page.getByRole("button", { name: /开始/ }).click();
   await page.getByRole("button", { name: /保存实验数据/ }).click();
   await page.getByRole("button", { name: /图例筛选/ }).click();
-  await page.getByRole("button", { name: /质量/ }).first().click();
+  await expect(page.getByRole("button", { name: /下载 SVG/ })).toBeVisible();
+  await page.locator(".model-card").getByRole("button", { name: /重置视角/ }).click();
+  await page.locator(".model-card").getByRole("button", { name: /质量/ }).click();
+  await expect(page.getByText("增加质量会减小相同合力下的加速度。")).toBeVisible();
   await page.locator(".panorama-stage").dragTo(page.locator(".panorama-stage"), { targetPosition: { x: 120, y: 140 } });
+  await expect(page.locator(".panorama-card").getByRole("button", { name: /全屏/ })).toBeVisible();
   await page.getByRole("button", { name: /第三章/ }).click();
   await page.getByLabel("3 m/s²").check();
   await page.getByLabel("加速度增大").check();
@@ -146,8 +178,6 @@ test("student switches modes and operates rich media, simulation, quiz, notes an
   await expect(graphLinkPanel.getByRole("heading", { name: "随堂练习" })).toBeVisible();
   await graphLinkPanel.getByRole("button", { name: "打开习题" }).click();
   await expect(page.locator("#chapter-practice-1-quizSet")).toBeVisible();
-  await page.getByPlaceholder("给选中文本添加笔记").fill("课堂演示笔记");
-  await page.getByRole("button", { name: "yellow" }).click();
   await page.getByRole("button", { name: /提交录音/ }).click();
   await page.goto(`/reader/books/${bookId}/report`);
   await expect(page.getByText("个人学习报告")).toBeVisible();
@@ -221,10 +251,10 @@ test("P1 assignment, question bank, resource, report export and template pages w
   await expect(page.getByText("资源、SCORM 与 H5P")).toBeVisible();
   await expect(page.getByText(/SCORM 微课包/)).toBeVisible();
   await expect(page.getByText(/H5P 互动题包/)).toBeVisible();
-  await page.goto(`/reader/books/${bookId}/resources`);
+  await page.goto(`/reader/books/${bookId}/resources?classroomId=${classroomId}`);
   await page.getByPlaceholder("搜索资源标题、类型、文件名或文件内容").fill("实验目的");
   await expect(page.getByText("DOCX 教材原稿")).toBeVisible();
-  await page.goto(`/reader/books/${bookId}/resources/asset_docx`);
+  await page.goto(`/reader/books/${bookId}/resources/asset_docx?classroomId=${classroomId}`);
   await expect(page.getByText(/Office\/WPS 文档转 HTML 预览/)).toBeVisible();
   await expect(page.getByText(/牛顿第二定律/).first()).toBeVisible();
   const classExport = await page.request.get(`/api/classes/${classroomId}/analytics/export?format=xlsx`);
@@ -235,7 +265,8 @@ test("P1 assignment, question bank, resource, report export and template pages w
   await page.getByPlaceholder("搜索资源标题、类型、文件名或文件内容").fill("cart-experiment");
   await expect(page.getByText(/实验视频|VIDEO/).first()).toBeVisible();
   await page.getByPlaceholder("搜索资源标题、类型、文件名或文件内容").fill("实验指导书");
-  await page.locator(`a[href="/reader/books/${bookId}/resources/asset_guide"]`).click();
+  await expect(page.getByRole("link", { name: /牛顿第二定律实验指导书/ })).toBeVisible();
+  await page.goto(`/reader/books/${bookId}/resources/asset_guide?classroomId=${classroomId}`);
   await expect(page.getByText(/PDF 原生预览/)).toBeVisible();
   await expect(page.locator(".file-preview iframe")).toBeVisible();
   await demoLogin(page, "teacher");
@@ -251,7 +282,7 @@ test("P1 assignment, question bank, resource, report export and template pages w
   const backupResponse = await page.request.post("/api/platform/readiness");
   expect(backupResponse.ok()).toBe(true);
   await demoLogin(page, "student");
-  await page.goto(`/reader/books/${bookId}/assignments`);
+  await page.goto(`/reader/books/${bookId}/assignments?classroomId=${classroomId}`);
   await expect(page.getByText("作业与反馈")).toBeVisible();
   await expect(page.getByText(/课后作业/)).toBeVisible();
   await expect(page.getByText("二、实验操作")).toBeVisible();
