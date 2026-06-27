@@ -30,6 +30,10 @@ async function demoLogin(page: Page, role: "editor" | "teacher" | "student") {
   await page.request.post("/api/auth/demo-login", { data: { role } });
 }
 
+async function passwordLogin(page: Page, email: string) {
+  await page.request.post("/api/auth/login", { data: { email, password: "demo123456" } });
+}
+
 test("editor uses TipTap, autosaves, inserts component and publishes", async ({ page }) => {
   await demoLogin(page, "editor");
   await page.goto(`/editor/books/${bookId}`);
@@ -280,7 +284,13 @@ test("P1 assignment, question bank, resource, report export and template pages w
   expect(readinessJson.readiness.rbac.ready).toBe(true);
   expect(readinessJson.readiness.backup.ready).toBe(true);
   const backupResponse = await page.request.post("/api/platform/readiness");
-  expect(backupResponse.ok()).toBe(true);
+  expect(backupResponse.status()).toBe(403);
+  await demoLogin(page, "editor");
+  const editorBackupResponse = await page.request.post("/api/platform/readiness");
+  expect(editorBackupResponse.ok()).toBe(true);
+  await demoLogin(page, "teacher");
+  const teacherBackupResponse = await page.request.post("/api/platform/readiness");
+  expect(teacherBackupResponse.status()).toBe(403);
   await demoLogin(page, "student");
   await page.goto(`/reader/books/${bookId}/assignments?classroomId=${classroomId}`);
   await expect(page.getByText("作业与反馈")).toBeVisible();
@@ -312,6 +322,119 @@ test("P1 assignment, question bank, resource, report export and template pages w
   await expect(page.locator(".ai-message.assistant").first()).toBeVisible();
   const personalExport = await page.request.get(`/api/reader/books/${bookId}/report/export?format=svg`);
   expect(personalExport.ok()).toBe(true);
+});
+
+test("access boundaries reject forbidden assets, pages and learning writes", async ({ page }) => {
+  const unauthenticatedAsset = await page.request.get("/api/assets/asset_guide/file");
+  expect(unauthenticatedAsset.status()).toBe(401);
+
+  await demoLogin(page, "student");
+  const editorApi = await page.request.get(`/api/books/${bookId}`);
+  expect(editorApi.status()).toBe(403);
+  const editorPage = await page.goto(`/editor/books/${bookId}`);
+  expect(editorPage?.status()).toBeGreaterThanOrEqual(400);
+
+  const teacherPage = await page.goto(`/teacher/classes/${classroomId}/analytics`);
+  expect(teacherPage?.status()).toBeGreaterThanOrEqual(400);
+
+  const teacherOnlyAsset = await page.request.get("/api/assets/asset_docx/file");
+  expect(teacherOnlyAsset.status()).toBe(403);
+
+  await passwordLogin(page, "student2@demo.local");
+  const snapshotResponse = await page.request.get(`/api/reader/books/${bookId}`);
+  expect(snapshotResponse.ok()).toBe(true);
+  const snapshotJson = await snapshotResponse.json() as { snapshot: { versionId: string } };
+  const recordingResponse = await page.request.post(`/api/reader/books/${bookId}/recordings`, {
+    multipart: {
+      bookVersionId: snapshotJson.snapshot.versionId,
+      chapterId: "chapter-practice",
+      nodeId: "chapter-practice-2-recordingTask",
+      durationSeconds: "3",
+      file: {
+        name: "other-student.wav",
+        mimeType: "audio/wav",
+        buffer: Buffer.from("RIFF0000WAVEfmt ")
+      }
+    }
+  });
+  expect(recordingResponse.ok()).toBe(true);
+  const recordingJson = await recordingResponse.json() as { assetId: string };
+
+  await demoLogin(page, "student");
+  const otherRecording = await page.request.get(`/api/assets/${recordingJson.assetId}/file`);
+  expect(otherRecording.status()).toBe(403);
+
+  const badAnnotation = await page.request.post(`/api/reader/books/${bookId}/annotations`, {
+    data: {
+      bookVersionId: "version_not_real",
+      chapterId: "chapter-observe",
+      nodeId: "chapter-observe-1-richText",
+      quote: "牛顿第二定律",
+      color: "yellow",
+      note: "bad"
+    }
+  });
+  expect(badAnnotation.ok()).toBe(false);
+  const badState = await page.request.put(`/api/reader/books/${bookId}/state`, {
+    data: {
+      bookVersionId: "version_not_real",
+      lastChapterId: "chapter-observe",
+      activeSecondsDelta: 1
+    }
+  });
+  expect(badState.ok()).toBe(false);
+  const badQuiz = await page.request.post(`/api/reader/books/${bookId}/quiz-attempts`, {
+    data: {
+      bookVersionId: "version_not_real",
+      chapterId: "chapter-practice",
+      nodeId: "chapter-practice-1-quizSet",
+      answers: { q1: 2 },
+      durationSeconds: 1
+    }
+  });
+  expect(badQuiz.ok()).toBe(false);
+  const badExperiment = await page.request.post(`/api/reader/books/${bookId}/experiments`, {
+    data: {
+      bookVersionId: "version_not_real",
+      chapterId: "chapter-operate",
+      nodeId: "chapter-operate-5-physicsSimulation",
+      force: 6,
+      mass: 2
+    }
+  });
+  expect(badExperiment.ok()).toBe(false);
+  const badRecording = await page.request.post(`/api/reader/books/${bookId}/recordings`, {
+    multipart: {
+      bookVersionId: "version_not_real",
+      chapterId: "chapter-practice",
+      nodeId: "chapter-practice-2-recordingTask",
+      durationSeconds: "1"
+    }
+  });
+  expect(badRecording.ok()).toBe(false);
+
+  await demoLogin(page, "teacher");
+  const createdResponse = await page.request.post("/api/courses", { data: { name: "Access Boundary Course", classroomName: "Not Joined", bookId } });
+  expect(createdResponse.ok()).toBe(true);
+  const createdJson = await createdResponse.json() as { course: { classroomId: string } };
+
+  await demoLogin(page, "student");
+  const badEvent = await page.request.post("/api/events/batch", {
+    data: {
+      events: [{
+        bookVersionId: snapshotJson.snapshot.versionId,
+        classroomId: createdJson.course.classroomId,
+        chapterId: "chapter-observe",
+        nodeId: "chapter-observe-0-heading",
+        eventType: "PAGE_VIEW"
+      }]
+    }
+  });
+  expect(badEvent.status()).toBe(403);
+
+  await demoLogin(page, "teacher");
+  const badCourse = await page.request.post("/api/courses", { data: { name: "Unauthorized Book", classroomName: "Bad", bookId: "book_not_allowed" } });
+  expect(badCourse.ok()).toBe(false);
 });
 
 test("captures responsive verification screenshots", async ({ page }) => {

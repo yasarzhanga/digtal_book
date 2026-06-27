@@ -1,4 +1,5 @@
 import { requireUser } from "@/server/auth/session";
+import { ensureBookReadable } from "@/server/auth/guards";
 import { errorResponse, ok, parseJson } from "@/server/http";
 import { AiQuestionInputSchema, askAiQuestion, isAiProviderConfigured, listAiConversations, type AiAskResult } from "@/server/services/ai";
 import { getReaderSnapshot } from "@/server/services/reader";
@@ -11,6 +12,7 @@ export async function GET(_request: Request, context: RouteContext): Promise<Res
   try {
     const user = await requireUser();
     const { bookId } = await context.params;
+    ensureBookReadable(user, bookId);
     const snapshot = getReaderSnapshot(bookId);
     return ok({
       providerConfigured: isAiProviderConfigured(),
@@ -25,6 +27,7 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
   try {
     const user = await requireUser();
     const { bookId } = await context.params;
+    ensureBookReadable(user, bookId);
     const input = await parseJson(request, AiQuestionInputSchema);
     const result = await askAiQuestion(user.id, bookId, input);
     const url = new URL(request.url);

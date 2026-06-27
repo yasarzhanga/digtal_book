@@ -1,6 +1,4 @@
-import { redirect } from "next/navigation";
-
-import { getCurrentUser } from "@/server/auth/session";
+import { ensureClassroomTeacher, requireTeacher } from "@/server/auth/guards";
 import { getCurrentSnapshot } from "@/server/services/books";
 import { getClassroom, getCurrentLive } from "@/server/services/teaching";
 import { TeacherLiveClient } from "./TeacherLiveClient";
@@ -10,12 +8,9 @@ interface PageProps {
 }
 
 export default async function TeacherLivePage({ params }: PageProps) {
-  const user = await getCurrentUser();
-  if (!user) {
-    redirect("/login");
-  }
-
+  const user = await requireTeacher();
   const { classroomId } = await params;
+  ensureClassroomTeacher(classroomId, user.id);
   const classroom = getClassroom(classroomId);
   const snapshot = getCurrentSnapshot(classroom.bookId);
   const current = JSON.parse(JSON.stringify(getCurrentLive(classroomId))) as ReturnType<typeof getCurrentLive>;

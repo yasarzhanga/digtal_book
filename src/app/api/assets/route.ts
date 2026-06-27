@@ -1,11 +1,11 @@
-import { AssetUploadInputSchema, createUploadedAsset, listAssets } from "@/server/services/assets";
+import { AssetUploadInputSchema, createUploadedAsset, listReadableAssets } from "@/server/services/assets";
 import { requireRole } from "@/server/auth/guards";
 import { errorResponse, ok } from "@/server/http";
 
 export async function GET(): Promise<Response> {
   try {
-    await requireRole(["EDITOR", "TEACHER"]);
-    return ok({ assets: listAssets() });
+    const user = await requireRole(["EDITOR", "TEACHER"]);
+    return ok({ assets: listReadableAssets(user) });
   } catch (error) {
     return errorResponse(error);
   }

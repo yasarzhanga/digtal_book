@@ -12,4 +12,4 @@
 - 租户与成员角色表：`Tenant`、`TenantMembership`。
 - 数据库队列：`PlatformJob`，支持 enqueue/claim/complete/fail。
 - 备份记录：`BackupRecord`，`createDatabaseBackup()` 会复制 SQLite 文件并写入 SHA-256。
-- readiness API：`GET /api/platform/readiness` 查看配置状态，`POST /api/platform/readiness` 创建一次备份。
+- readiness API：`GET /api/platform/readiness` 查看配置状态，`POST /api/platform/readiness` 仅限编辑者角色创建一次本地 SQLite 备份。

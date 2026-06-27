@@ -21,7 +21,7 @@ export async function GET(): Promise<Response> {
 export async function POST(): Promise<Response> {
   try {
     const user = await requireUser();
-    if (user.role !== "EDITOR" && user.role !== "TEACHER") {
+    if (user.role !== "EDITOR") {
       throw new Error("FORBIDDEN");
     }
     return ok({ backup: createDatabaseBackup("api") });

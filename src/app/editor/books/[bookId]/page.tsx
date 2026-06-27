@@ -1,6 +1,6 @@
-import { requireUser } from "@/server/auth/session";
-import { getEditorBook } from "@/server/services/books";
-import { listAssets } from "@/server/services/assets";
+import { ensureBookOwner, requireEditor } from "@/server/auth/guards";
+import { getEditorBookForOwner } from "@/server/services/books";
+import { listReadableAssets } from "@/server/services/assets";
 import { EditorClient } from "./EditorClient";
 
 interface PageProps {
@@ -8,9 +8,10 @@ interface PageProps {
 }
 
 export default async function EditorBookPage({ params }: PageProps) {
-  await requireUser();
+  const user = await requireEditor();
   const { bookId } = await params;
-  const book = getEditorBook(bookId);
-  const assets = listAssets();
+  ensureBookOwner(bookId, user.id);
+  const book = getEditorBookForOwner(bookId, user.id);
+  const assets = listReadableAssets(user);
   return <EditorClient book={book} assets={assets} />;
 }

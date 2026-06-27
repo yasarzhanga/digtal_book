@@ -7,8 +7,11 @@ import { collectAssetIdsFromDocument } from "@/content-engine/utils/assets";
 import { ChapterDocumentSchema } from "@/content-engine/schema/document";
 import { asRow, asRows, getDb } from "@/server/db/client";
 import { id } from "@/server/db/ids";
-import type { AssetRow, DraftDocumentRow } from "@/server/db/types";
+import { BookSnapshotSchema } from "@/content-engine/schema/document";
+import type { AssetRow, BookVersionRow, DraftDocumentRow } from "@/server/db/types";
+import type { PublicUser } from "@/server/services/auth";
 import { extractAssetSearchText } from "@/server/services/asset-search";
+import { ensureBookReadable } from "@/server/auth/guards";
 
 export const AssetUploadInputSchema = z.object({
   title: z.string().min(1),
@@ -44,9 +47,25 @@ export function listAssets(): Asset[] {
   return rows.map(toAsset);
 }
 
+export function listReadableAssets(user: PublicUser): Asset[] {
+  const rows = asRows<AssetRow>(getDb().prepare("SELECT * FROM Asset ORDER BY kind, title").all());
+  return rows.filter((row) => canAccessAssetRow(row, user)).map(toAsset);
+}
+
 export function getAsset(assetId: string): Asset | null {
   const row = asRow<AssetRow>(getDb().prepare("SELECT * FROM Asset WHERE id = ?").get(assetId));
   return row ? toAsset(row) : null;
+}
+
+export function ensureAssetReadable(assetId: string, user: PublicUser): Asset {
+  const row = asRow<AssetRow>(getDb().prepare("SELECT * FROM Asset WHERE id = ?").get(assetId));
+  if (!row) {
+    throw new Error("ASSET_NOT_FOUND");
+  }
+  if (!canAccessAssetRow(row, user)) {
+    throw new Error("ASSET_READ_FORBIDDEN");
+  }
+  return toAsset(row);
 }
 
 export function getAssetFile(assetId: string): { absolutePath: string; mimeType: string; originalName: string; size: number } {
@@ -170,6 +189,25 @@ export function getAssetReferences(assetId: string): { chapterId: string; count:
   });
 }
 
+export function getVisibleAssetReferences(assetId: string, user: PublicUser): { chapterId: string; count: number }[] {
+  ensureAssetReadable(assetId, user);
+  const rows = asRows<DraftDocumentRow & { bookId: string }>(
+    getDb().prepare(`
+      SELECT DraftDocument.chapterId, DraftDocument.documentJson, Chapter.bookId
+      FROM DraftDocument JOIN Chapter ON Chapter.id = DraftDocument.chapterId
+      ORDER BY Chapter.sortOrder ASC
+    `).all()
+  );
+  return rows.flatMap((row) => {
+    if (!canReadBook(user, row.bookId)) {
+      return [];
+    }
+    const document = ChapterDocumentSchema.parse(JSON.parse(row.documentJson) as unknown);
+    const count = collectAssetIdsFromDocument(document).filter((idValue) => idValue === assetId).length;
+    return count > 0 ? [{ chapterId: row.chapterId, count }] : [];
+  });
+}
+
 export function deleteUnreferencedAsset(assetId: string): void {
   const references = getAssetReferences(assetId);
   if (references.length > 0) {
@@ -178,6 +216,88 @@ export function deleteUnreferencedAsset(assetId: string): void {
   const file = getAssetFile(assetId);
   getDb().prepare("DELETE FROM Asset WHERE id = ?").run(assetId);
   fs.rmSync(file.absolutePath, { force: true });
+}
+
+function canAccessAssetRow(row: AssetRow, user: PublicUser): boolean {
+  if (row.ownerId === user.id) {
+    return true;
+  }
+  if (isStudentRecordingAsset(row.id, user)) {
+    return true;
+  }
+  if (isCourseResourceAsset(row.id, user)) {
+    return true;
+  }
+  return isPublishedBookAsset(row.id, user);
+}
+
+function isStudentRecordingAsset(assetId: string, user: PublicUser): boolean {
+  if (user.role !== "STUDENT") {
+    return false;
+  }
+  const row = asRow<{ id: string }>(
+    getDb().prepare("SELECT id FROM RecordingSubmission WHERE assetId = ? AND userId = ? LIMIT 1").get(assetId, user.id)
+  );
+  return Boolean(row);
+}
+
+function isCourseResourceAsset(assetId: string, user: PublicUser): boolean {
+  const rows = asRows<{ classroomId: string; teacherId: string; visibility: string }>(
+    getDb().prepare(`
+      SELECT Classroom.id AS classroomId, Course.teacherId, CourseResource.visibility
+      FROM CourseResource
+      JOIN Course ON Course.id = CourseResource.courseId
+      JOIN Classroom ON Classroom.courseId = Course.id
+      WHERE CourseResource.assetId = ?
+    `).all(assetId)
+  );
+  return rows.some((row) => {
+    if (user.role === "TEACHER") {
+      return row.teacherId === user.id;
+    }
+    if (user.role === "STUDENT" && row.visibility === "CLASS") {
+      const enrollment = asRow<{ id: string }>(
+        getDb().prepare("SELECT id FROM Enrollment WHERE classroomId = ? AND studentId = ?").get(row.classroomId, user.id)
+      );
+      return Boolean(enrollment);
+    }
+    return false;
+  });
+}
+
+function isPublishedBookAsset(assetId: string, user: PublicUser): boolean {
+  const rows = asRows<BookVersionRow & { ownerId: string; currentPublishedVersionId: string | null }>(
+    getDb().prepare(`
+      SELECT BookVersion.*, Book.ownerId, Book.currentPublishedVersionId
+      FROM BookVersion
+      JOIN Book ON Book.currentPublishedVersionId = BookVersion.id
+    `).all()
+  );
+  return rows.some((row) => {
+    if (!snapshotReferencesAsset(row.snapshotJson, assetId)) {
+      return false;
+    }
+    return canReadBook(user, row.bookId);
+  });
+}
+
+function snapshotReferencesAsset(snapshotJson: string, assetId: string): boolean {
+  try {
+    const snapshot = BookSnapshotSchema.parse(JSON.parse(snapshotJson) as unknown);
+    return snapshot.assets.some((asset) => asset.id === assetId)
+      || snapshot.chapters.some((chapter) => collectAssetIdsFromDocument(chapter.document).includes(assetId));
+  } catch {
+    return false;
+  }
+}
+
+function canReadBook(user: PublicUser, bookId: string): boolean {
+  try {
+    ensureBookReadable(user, bookId);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function safeExtension(fileName: string): string {

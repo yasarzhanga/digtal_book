@@ -101,8 +101,21 @@ export function getEditorBook(bookId: string): EditorBook {
   };
 }
 
+export function getEditorBookForOwner(bookId: string, ownerId: string): EditorBook {
+  const book = mustGetBook(bookId);
+  if (book.ownerId !== ownerId) {
+    throw new Error("BOOK_OWNER_FORBIDDEN");
+  }
+  return getEditorBook(bookId);
+}
+
 export function listBooks(): { id: string; title: string; subtitle: string; currentPublishedVersionId: string | null }[] {
   const rows = asRows<BookRow>(getDb().prepare("SELECT * FROM Book ORDER BY createdAt DESC").all());
+  return rows.map((row) => ({ id: row.id, title: row.title, subtitle: row.subtitle, currentPublishedVersionId: row.currentPublishedVersionId }));
+}
+
+export function listBooksForOwner(ownerId: string): { id: string; title: string; subtitle: string; currentPublishedVersionId: string | null }[] {
+  const rows = asRows<BookRow>(getDb().prepare("SELECT * FROM Book WHERE ownerId = ? ORDER BY createdAt DESC").all(ownerId));
   return rows.map((row) => ({ id: row.id, title: row.title, subtitle: row.subtitle, currentPublishedVersionId: row.currentPublishedVersionId }));
 }
 

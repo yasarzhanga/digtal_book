@@ -1,5 +1,6 @@
-import { ensureClassroomTeacher, ensureStudentEnrolled } from "@/server/auth/guards";
+import { ensureBookReadable } from "@/server/auth/guards";
 import { requireUser } from "@/server/auth/session";
+import { ensureAssetReadable } from "@/server/services/assets";
 import { getAssetPreview } from "@/server/services/previews";
 import { getReaderSnapshot } from "@/server/services/reader";
 import { getStudentClassroomForBook } from "@/server/services/teaching";
@@ -14,11 +15,11 @@ export default async function AssetPreviewPage({ params, searchParams }: PagePro
   const user = await requireUser();
   const { bookId, assetId } = await params;
   const { classroomId: requestedClassroomId } = await searchParams;
+  const classroomId = requestedClassroomId ?? (user.role === "STUDENT" ? getStudentClassroomForBook(user.id, bookId) ?? undefined : undefined);
+  ensureBookReadable(user, bookId, classroomId);
+  ensureAssetReadable(assetId, user);
   const preview = await getAssetPreview(assetId);
   const snapshot = getReaderSnapshot(bookId);
-  const classroomId = requestedClassroomId ?? (user.role === "STUDENT" ? getStudentClassroomForBook(user.id, bookId) ?? undefined : undefined);
-  if (classroomId && user.role === "STUDENT") ensureStudentEnrolled(classroomId, user.id);
-  if (classroomId && user.role === "TEACHER") ensureClassroomTeacher(classroomId, user.id);
   return (
     <main className="workspace-page">
       <ResourcePreviewTracker bookVersionId={snapshot.versionId} classroomId={classroomId} assetId={assetId} title={preview.asset.title} assetKind={preview.asset.kind} />

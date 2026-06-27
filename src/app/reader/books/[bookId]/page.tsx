@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { ensureClassroomTeacher, ensureStudentEnrolled } from "@/server/auth/guards";
+import { ensureBookReadable } from "@/server/auth/guards";
 import { getCurrentUser } from "@/server/auth/session";
 import { getReaderSnapshot } from "@/server/services/reader";
 import { getStudentClassroomForBook } from "@/server/services/teaching";
@@ -18,8 +18,7 @@ export default async function ReaderPage({ params, searchParams }: PageProps) {
   const { bookId } = await params;
   const query = await searchParams;
   const classroomId = query.classroomId ?? (user.role === "STUDENT" ? getStudentClassroomForBook(user.id, bookId) ?? undefined : undefined);
-  if (classroomId && user.role === "STUDENT") ensureStudentEnrolled(classroomId, user.id);
-  if (classroomId && user.role === "TEACHER") ensureClassroomTeacher(classroomId, user.id);
+  ensureBookReadable(user, bookId, classroomId);
   const snapshot = getReaderSnapshot(bookId);
   return <ReaderClient bookId={bookId} snapshot={snapshot} initialClassroomId={classroomId} />;
 }

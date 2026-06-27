@@ -1,4 +1,4 @@
-import { requireStudent } from "@/server/auth/guards";
+import { ensureBookReadable, requireStudent } from "@/server/auth/guards";
 import { getReaderSnapshot, getPersonalReport } from "@/server/services/reader";
 import { errorResponse, ok } from "@/server/http";
 
@@ -10,6 +10,7 @@ export async function GET(_request: Request, context: RouteContext): Promise<Res
   try {
     const user = await requireStudent();
     const { bookId } = await context.params;
+    ensureBookReadable(user, bookId);
     const snapshot = getReaderSnapshot(bookId);
     return ok({ report: getPersonalReport(user.id, snapshot.versionId) });
   } catch (error) {

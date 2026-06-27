@@ -1,4 +1,4 @@
-import { requireStudent } from "@/server/auth/guards";
+import { ensureBookVersionWritable, ensureVersionNode, requireStudent } from "@/server/auth/guards";
 import { getReaderSnapshot, QuizAttemptInputSchema, submitQuiz } from "@/server/services/reader";
 import { errorResponse, ok, parseJson } from "@/server/http";
 
@@ -11,6 +11,8 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
     const user = await requireStudent();
     const input = await parseJson(request, QuizAttemptInputSchema);
     const { bookId } = await context.params;
+    ensureBookVersionWritable(user, bookId, input.bookVersionId);
+    ensureVersionNode(input.bookVersionId, input.chapterId, input.nodeId);
     return ok(submitQuiz(user.id, getReaderSnapshot(bookId), input));
   } catch (error) {
     return errorResponse(error);

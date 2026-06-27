@@ -45,6 +45,7 @@ student@demo.local / demo123456
 - DOCX 导入使用 Mammoth 转 HTML，并按 H1/H2 拆分章节；支持预览统计、确认导入、基础格式、表格和可提取图片入库。
 - 文件预览提供 PDF 原生预览、DOCX HTML 预览、XLSX 网格预览和资源学习记录。
 - 云化相关仅提供本地 readiness、SQLite 备份、对象存储本地适配、PostgreSQL 迁移骨架和配置探测。
+- 本地备份创建入口 `POST /api/platform/readiness` 仅限编辑者角色；教师和学生只能读取 readiness 状态。
 
 ## 降级预览与不应声称的能力
 
@@ -98,13 +99,13 @@ npm run build
 npm run verify:demo
 ```
 
-2026-06-27 本轮最终实际运行并通过：
+2026-06-27 14:37 本轮最终实际运行并通过：
 
 - `npm run db:reset`
 - `npm run lint`
 - `npm run typecheck`
-- `npm run test`，31 passed
-- `npm run test:e2e`，5 passed
+- `npm run test`，34 passed
+- `npm run test:e2e`，6 passed
 - `npm run build`
 - `npm run verify:demo`
 

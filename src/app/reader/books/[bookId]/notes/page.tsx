@@ -1,4 +1,4 @@
-import { requireUser } from "@/server/auth/session";
+import { ensureBookReadable, requireStudent } from "@/server/auth/guards";
 import { getReaderSnapshot, listAnnotations } from "@/server/services/reader";
 
 interface PageProps {
@@ -6,8 +6,9 @@ interface PageProps {
 }
 
 export default async function NotesPage({ params }: PageProps) {
-  const user = await requireUser();
+  const user = await requireStudent();
   const { bookId } = await params;
+  ensureBookReadable(user, bookId);
   const snapshot = getReaderSnapshot(bookId);
   const annotations = listAnnotations(user.id, snapshot.versionId) as { id: string; quote: string; note: string; color: string; chapterId: string }[];
   return (

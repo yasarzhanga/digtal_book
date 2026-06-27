@@ -4,14 +4,20 @@ import fs from "node:fs";
 import { DEMO_BOOK_ID, DEMO_CLASSROOM_ID, DEMO_COURSE_ID } from "@/server/db/ids";
 import { closeDb, getDb } from "@/server/db/client";
 import {
+  ensureActivityEventWritable,
+  ensureAssetOwner,
+  ensureBookReadable,
+  ensureBookVersionWritable,
   ensureAttendanceStudent,
   ensureEditorBookOwner,
   ensureLiveQuizStudent,
   ensureStudentClassroomAccess,
-  ensureTeacherClassroomAccess
+  ensureTeacherClassroomAccess,
+  ensureVersionNode
 } from "@/server/auth/guards";
 import { demoLogin, type PublicUser } from "@/server/services/auth";
 import { getEditorBook, importDocxUpload, publishBook, saveChapterDocument } from "@/server/services/books";
+import { ensureAssetReadable } from "@/server/services/assets";
 import { getCurrentSnapshot } from "@/server/services/books";
 import { auditNoUnsupportedEventTypes, getPersonalReport, mediaCompletionRateForPrefix, saveExperiment, searchBook, submitQuiz, upsertReadingState } from "@/server/services/reader";
 import {
@@ -355,6 +361,81 @@ describe("security guards", () => {
     expect(() => ensureStudentClassroomAccess(created.classroomId, studentUser)).toThrow("STUDENT_CLASSROOM_FORBIDDEN");
     expect(() => ensureLiveQuizStudent(liveQuiz.id, "user_student")).toThrow("STUDENT_CLASSROOM_FORBIDDEN");
     expect(() => ensureAttendanceStudent(attendance.id, "user_student")).toThrow("STUDENT_CLASSROOM_FORBIDDEN");
+  });
+
+  it("protects asset access by owner, readable book, course resource and recording owner", () => {
+    expect(ensureAssetReadable("asset_guide", studentUser).id).toBe("asset_guide");
+    expect(() => ensureAssetReadable("asset_docx", studentUser)).toThrow("ASSET_READ_FORBIDDEN");
+    expect(() => ensureAssetOwner("asset_guide", "user_student")).toThrow("ASSET_OWNER_FORBIDDEN");
+    getDb().prepare("INSERT INTO Asset (id, ownerId, kind, assetKey, originalName, mimeType, size, relativePath, title, description, metadataJson, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").run(
+      "asset_other_recording",
+      "user_student_2",
+      "AUDIO",
+      "asset_other_recording",
+      "other.wav",
+      "audio/wav",
+      8,
+      "asset_other_recording.wav",
+      "他人录音",
+      "",
+      "{}",
+      new Date().toISOString()
+    );
+    getDb().prepare("INSERT INTO RecordingSubmission (id, userId, bookVersionId, chapterId, nodeId, assetId, durationSeconds, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)").run(
+      "recording_other_unit",
+      "user_student_2",
+      getCurrentSnapshot(DEMO_BOOK_ID).versionId,
+      "chapter-practice",
+      "chapter-practice-2-recordingTask",
+      "asset_other_recording",
+      6,
+      new Date().toISOString()
+    );
+    expect(() => ensureAssetReadable("asset_other_recording", studentUser)).toThrow("ASSET_READ_FORBIDDEN");
+    expect(ensureAssetReadable("asset_other_recording", { ...studentUser, id: "user_student_2" }).id).toBe("asset_other_recording");
+  });
+
+  it("guards book readability, current-version writes and event scope", () => {
+    const snapshot = getCurrentSnapshot(DEMO_BOOK_ID);
+    expect(ensureBookReadable(studentUser, DEMO_BOOK_ID).id).toBe(DEMO_BOOK_ID);
+    expect(() => ensureBookReadable({ ...studentUser, id: "user_student_99" }, DEMO_BOOK_ID)).toThrow("BOOK_READ_FORBIDDEN");
+    publishBook(DEMO_BOOK_ID, "权限单测新版本");
+    expect(() => ensureBookVersionWritable(studentUser, DEMO_BOOK_ID, snapshot.versionId)).toThrow("BOOK_VERSION_WRITE_FORBIDDEN");
+    expect(() => ensureVersionNode(getCurrentSnapshot(DEMO_BOOK_ID).versionId, "missing_chapter", "missing_node")).toThrow("CHAPTER_VERSION_FORBIDDEN");
+
+    const isolated = createCourseWithClassroom("user_teacher", { name: "未入班事件课", classroomName: "未入班事件班" });
+    expect(() => ensureActivityEventWritable(studentUser, {
+      bookVersionId: getCurrentSnapshot(DEMO_BOOK_ID).versionId,
+      classroomId: isolated.classroomId,
+      eventType: "PAGE_VIEW"
+    })).toThrow("STUDENT_CLASSROOM_FORBIDDEN");
+  });
+
+  it("rejects unauthorized teaching books for course creation", () => {
+    const snapshot = getCurrentSnapshot(DEMO_BOOK_ID);
+    const otherBookId = "book_other_published";
+    const otherVersionId = "version_other_published";
+    const now = new Date().toISOString();
+    getDb().prepare("INSERT INTO Book (id, title, subtitle, description, coverAssetId, ownerId, currentPublishedVersionId, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)").run(
+      otherBookId,
+      "未授权教材",
+      "权限测试",
+      "用于验证教师不能任意开课",
+      null,
+      "user_editor",
+      otherVersionId,
+      now,
+      now
+    );
+    getDb().prepare("INSERT INTO BookVersion (id, bookId, versionNumber, snapshotJson, note, publishedAt) VALUES (?, ?, ?, ?, ?, ?)").run(
+      otherVersionId,
+      otherBookId,
+      1,
+      JSON.stringify({ ...snapshot, book: { ...snapshot.book, id: otherBookId } }),
+      "权限测试版本",
+      now
+    );
+    expect(() => createCourseWithClassroom("user_teacher", { name: "未授权课程", classroomName: "未授权班", bookId: otherBookId })).toThrow("BOOK_TEACHING_FORBIDDEN");
   });
 });
 

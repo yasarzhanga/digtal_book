@@ -1,4 +1,4 @@
-import { requireStudent } from "@/server/auth/guards";
+import { ensureBookReadable, requireStudent } from "@/server/auth/guards";
 import { getPersonalReport, getReaderSnapshot } from "@/server/services/reader";
 
 interface PageProps {
@@ -8,6 +8,7 @@ interface PageProps {
 export default async function ReportPage({ params }: PageProps) {
   const user = await requireStudent();
   const { bookId } = await params;
+  ensureBookReadable(user, bookId);
   const snapshot = getReaderSnapshot(bookId);
   const report = getPersonalReport(user.id, snapshot.versionId);
   return (

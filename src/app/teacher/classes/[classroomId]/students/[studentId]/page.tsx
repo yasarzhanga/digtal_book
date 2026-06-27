@@ -1,4 +1,4 @@
-import { requireUser } from "@/server/auth/session";
+import { ensureClassroomTeacher, requireTeacher } from "@/server/auth/guards";
 import { getStudentReport } from "@/server/services/teaching";
 
 interface PageProps {
@@ -6,8 +6,9 @@ interface PageProps {
 }
 
 export default async function StudentReportPage({ params }: PageProps) {
-  await requireUser();
+  const user = await requireTeacher();
   const { classroomId, studentId } = await params;
+  ensureClassroomTeacher(classroomId, user.id);
   const report = getStudentReport(classroomId, studentId);
   return (
     <main className="workspace-page">

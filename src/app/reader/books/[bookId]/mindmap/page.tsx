@@ -1,4 +1,4 @@
-import { requireUser } from "@/server/auth/session";
+import { ensureBookReadable, requireStudent } from "@/server/auth/guards";
 import { buildNotesMindMap } from "@/server/services/p1";
 import { MindMapClient } from "./MindMapClient";
 
@@ -7,8 +7,9 @@ interface PageProps {
 }
 
 export default async function MindMapPage({ params }: PageProps) {
-  const user = await requireUser();
+  const user = await requireStudent();
   const { bookId } = await params;
+  ensureBookReadable(user, bookId);
   const mindMap = buildNotesMindMap(user.id, bookId);
   return (
     <main className="workspace-page">

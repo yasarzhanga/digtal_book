@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { requireUser } from "@/server/auth/session";
+import { ensureClassroomTeacher, requireTeacher } from "@/server/auth/guards";
 import { getClassAnalytics, getClassroom, getResourceLearningDetails } from "@/server/services/teaching";
 
 interface PageProps {
@@ -7,8 +7,9 @@ interface PageProps {
 }
 
 export default async function AnalyticsPage({ params }: PageProps) {
-  await requireUser();
+  const user = await requireTeacher();
   const { classroomId } = await params;
+  ensureClassroomTeacher(classroomId, user.id);
   const classroom = getClassroom(classroomId);
   const analytics = getClassAnalytics(classroomId);
   const resourceLearning = getResourceLearningDetails(classroomId);

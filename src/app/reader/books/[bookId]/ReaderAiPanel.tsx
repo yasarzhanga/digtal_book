@@ -49,7 +49,7 @@ export function ReaderAiPanel({
       if (!response.ok || !mounted) return;
       const json = await response.json() as { providerConfigured: boolean; conversations: AiConversationDto[] };
       setConfigured(json.providerConfigured);
-      setConversations(json.conversations);
+      setConversations((current) => mergeConversations(current, json.conversations));
       setActiveId((current) => current || json.conversations[0]?.id || "");
       setStatus(json.providerConfigured ? "外部 AI 已连接" : "本地教材参考回答");
     }
@@ -173,6 +173,17 @@ export function ReaderAiPanel({
 function upsertConversation(conversations: AiConversationDto[], next: AiConversationDto): AiConversationDto[] {
   const others = conversations.filter((conversation) => conversation.id !== next.id);
   return [next, ...others];
+}
+
+function mergeConversations(current: AiConversationDto[], incoming: AiConversationDto[]): AiConversationDto[] {
+  const merged = new Map<string, AiConversationDto>();
+  for (const conversation of incoming) {
+    merged.set(conversation.id, conversation);
+  }
+  for (const conversation of current) {
+    merged.set(conversation.id, conversation);
+  }
+  return [...merged.values()].sort((first, second) => second.updatedAt.localeCompare(first.updatedAt));
 }
 
 async function readAiStream(

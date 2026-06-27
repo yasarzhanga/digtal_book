@@ -168,6 +168,7 @@ export function getStudentClassroomForBook(studentId: string, bookId: string): s
 
 export function createCourseWithClassroom(teacherId: string, input: z.input<typeof CourseCreateInputSchema>): { id: string; classroomId: string; joinCode: string } {
   const parsed = CourseCreateInputSchema.parse(input);
+  ensureTeachingBookAllowed(parsed.bookId);
   const now = new Date().toISOString();
   const courseId = id("course");
   const classroomId = id("class");
@@ -472,9 +473,10 @@ export function getResourceLearningDetails(classroomId: string): ResourceLearnin
       SELECT ActivityEvent.userId, User.name AS studentName, ActivityEvent.eventType, ActivityEvent.chapterId, ActivityEvent.nodeId, ActivityEvent.payloadJson, ActivityEvent.occurredAt
       FROM ActivityEvent JOIN User ON User.id = ActivityEvent.userId
       WHERE ActivityEvent.userId IN (${studentIds.map(() => "?").join(",")})
+        AND ActivityEvent.classroomId = ?
         AND ActivityEvent.eventType IN ('RESOURCE_OPEN', 'ATTACHMENT_OPEN')
       ORDER BY ActivityEvent.occurredAt DESC
-    `).all(...studentIds)
+    `).all(...studentIds, classroomId)
   );
   const events = rows.map((row) => toResourceLearningEvent(row));
   const summaries = new Map<string, ResourceLearningSummary & { students: Set<string> }>();
@@ -506,28 +508,29 @@ export function getResourceLearningDetails(classroomId: string): ResourceLearnin
 
 export function getClassAnalytics(classroomId: string): ClassAnalytics {
   const studentIds = asRows<{ studentId: string }>(getDb().prepare("SELECT studentId FROM Enrollment WHERE classroomId = ?").all(classroomId)).map((row) => row.studentId);
+  const bookVersionId = getClassBookVersionId(classroomId);
   const studentCount = studentIds.length || 1;
   const placeholders = studentIds.map(() => "?").join(",");
   const activeRows = studentIds.length
-    ? asRows<{ activeSeconds: number; visitedChapterIdsJson: string }>(getDb().prepare(`SELECT activeSeconds, visitedChapterIdsJson FROM ReadingState WHERE userId IN (${placeholders})`).all(...studentIds))
+    ? asRows<{ activeSeconds: number; visitedChapterIdsJson: string }>(getDb().prepare(`SELECT activeSeconds, visitedChapterIdsJson FROM ReadingState WHERE userId IN (${placeholders}) AND bookVersionId = ?`).all(...studentIds, bookVersionId))
     : [];
   const averageActiveSeconds = activeRows.length ? activeRows.reduce((sum, row) => sum + row.activeSeconds, 0) / activeRows.length : 0;
   const averageProgress = activeRows.length ? activeRows.reduce((sum, row) => sum + (JSON.parse(row.visitedChapterIdsJson) as string[]).length / 3, 0) / activeRows.length : 0;
-  const audioCompletionRate = averageEventProgress(studentIds, "AUDIO");
-  const videoCompletionRate = averageEventProgress(studentIds, "VIDEO");
-  const simulationParticipants = distinctParticipantCount(studentIds, "SIMULATION_SAVE");
+  const audioCompletionRate = averageEventProgress(studentIds, "AUDIO", bookVersionId);
+  const videoCompletionRate = averageEventProgress(studentIds, "VIDEO", bookVersionId);
+  const simulationParticipants = distinctParticipantCount(studentIds, "SIMULATION_SAVE", bookVersionId);
   const modelPanoramaParticipants = new Set([
-    ...participants(studentIds, "MODEL3D_INTERACT"),
-    ...participants(studentIds, "PANORAMA_OPEN")
+    ...participants(studentIds, "MODEL3D_INTERACT", bookVersionId),
+    ...participants(studentIds, "PANORAMA_OPEN", bookVersionId)
   ]).size;
   const quizRows = studentIds.length
-    ? asRows<{ score: number; maxScore: number }>(getDb().prepare(`SELECT score, maxScore FROM QuizAttempt WHERE userId IN (${placeholders})`).all(...studentIds))
+    ? asRows<{ score: number; maxScore: number }>(getDb().prepare(`SELECT score, maxScore FROM QuizAttempt WHERE userId IN (${placeholders}) AND bookVersionId = ?`).all(...studentIds, bookVersionId))
     : [];
   const averageQuizAccuracy = quizRows.length ? quizRows.reduce((sum, row) => sum + row.score / row.maxScore, 0) / quizRows.length : 0;
-  const noteCount = countForStudents("Annotation", studentIds);
-  const recordingCount = countForStudents("RecordingSubmission", studentIds);
+  const noteCount = countForStudents("Annotation", studentIds, bookVersionId);
+  const recordingCount = countForStudents("RecordingSubmission", studentIds, bookVersionId);
   const trend = studentIds.length
-    ? asRows<{ day: string; count: number }>(getDb().prepare(`SELECT substr(occurredAt, 1, 10) AS day, COUNT(*) AS count FROM ActivityEvent WHERE userId IN (${placeholders}) GROUP BY day ORDER BY day DESC LIMIT 7`).all(...studentIds))
+    ? asRows<{ day: string; count: number }>(getDb().prepare(`SELECT substr(occurredAt, 1, 10) AS day, COUNT(*) AS count FROM ActivityEvent WHERE userId IN (${placeholders}) AND (bookVersionId = ? OR classroomId = ?) GROUP BY day ORDER BY day DESC LIMIT 7`).all(...studentIds, bookVersionId, classroomId))
     : [];
   const activeQuiz = getCurrentLive(classroomId).quiz;
   return {
@@ -551,12 +554,13 @@ export function getStudentReport(classroomId: string, studentId: string): { name
   if (!enrolled) {
     throw new Error("STUDENT_NOT_IN_CLASS");
   }
-  const state = asRow<{ activeSeconds: number }>(getDb().prepare("SELECT activeSeconds FROM ReadingState WHERE userId = ? ORDER BY updatedAt DESC LIMIT 1").get(studentId));
-  const quizzes = asRows<{ score: number; maxScore: number }>(getDb().prepare("SELECT score, maxScore FROM QuizAttempt WHERE userId = ?").all(studentId));
-  const experimentCount = countWhere("ExperimentRun", "userId = ?", [studentId]);
-  const noteCount = countWhere("Annotation", "userId = ?", [studentId]);
-  const recordingCount = countWhere("RecordingSubmission", "userId = ?", [studentId]);
-  const events = asRows<{ eventType: string; occurredAt: string }>(getDb().prepare("SELECT eventType, occurredAt FROM ActivityEvent WHERE userId = ? ORDER BY occurredAt DESC LIMIT 30").all(studentId));
+  const bookVersionId = getClassBookVersionId(classroomId);
+  const state = asRow<{ activeSeconds: number }>(getDb().prepare("SELECT activeSeconds FROM ReadingState WHERE userId = ? AND bookVersionId = ? ORDER BY updatedAt DESC LIMIT 1").get(studentId, bookVersionId));
+  const quizzes = asRows<{ score: number; maxScore: number }>(getDb().prepare("SELECT score, maxScore FROM QuizAttempt WHERE userId = ? AND bookVersionId = ?").all(studentId, bookVersionId));
+  const experimentCount = countWhere("ExperimentRun", "userId = ? AND bookVersionId = ?", [studentId, bookVersionId]);
+  const noteCount = countWhere("Annotation", "userId = ? AND bookVersionId = ?", [studentId, bookVersionId]);
+  const recordingCount = countWhere("RecordingSubmission", "userId = ? AND bookVersionId = ?", [studentId, bookVersionId]);
+  const events = asRows<{ eventType: string; occurredAt: string }>(getDb().prepare("SELECT eventType, occurredAt FROM ActivityEvent WHERE userId = ? AND (bookVersionId = ? OR classroomId = ?) ORDER BY occurredAt DESC LIMIT 30").all(studentId, bookVersionId, classroomId));
   return {
     name: enrolled.name,
     activeSeconds: state?.activeSeconds ?? 0,
@@ -577,6 +581,38 @@ function ensureCourseTeacher(courseId: string, teacherId: string): CourseRow {
     throw new Error("FORBIDDEN");
   }
   return course;
+}
+
+function ensureTeachingBookAllowed(bookId: string): void {
+  const book = asRow<{ currentPublishedVersionId: string | null }>(getDb().prepare("SELECT currentPublishedVersionId FROM Book WHERE id = ?").get(bookId));
+  if (!book) {
+    throw new Error("BOOK_NOT_FOUND");
+  }
+  if (!book.currentPublishedVersionId) {
+    throw new Error("BOOK_NOT_PUBLISHED");
+  }
+  if (bookId !== DEMO_BOOK_ID) {
+    throw new Error("BOOK_TEACHING_FORBIDDEN");
+  }
+}
+
+function getClassBookVersionId(classroomId: string): string {
+  const row = asRow<{ currentPublishedVersionId: string | null }>(
+    getDb().prepare(`
+      SELECT Book.currentPublishedVersionId
+      FROM Classroom
+      JOIN Course ON Course.id = Classroom.courseId
+      JOIN Book ON Book.id = Course.bookId
+      WHERE Classroom.id = ?
+    `).get(classroomId)
+  );
+  if (!row) {
+    throw new Error("CLASSROOM_NOT_FOUND");
+  }
+  if (!row.currentPublishedVersionId) {
+    throw new Error("BOOK_NOT_PUBLISHED");
+  }
+  return row.currentPublishedVersionId;
 }
 
 function ensureClassroomTeacher(classroomId: string, teacherId: string): CourseRow {
@@ -702,25 +738,26 @@ function getClassroomIdForLiveQuiz(liveQuizId: string): string | undefined {
   return row?.classroomId;
 }
 
-function participants(studentIds: string[], eventType: string): string[] {
+function participants(studentIds: string[], eventType: string, bookVersionId: string): string[] {
   if (studentIds.length === 0) return [];
-  const rows = asRows<{ userId: string }>(getDb().prepare(`SELECT DISTINCT userId FROM ActivityEvent WHERE userId IN (${studentIds.map(() => "?").join(",")}) AND eventType = ?`).all(...studentIds, eventType));
+  const rows = asRows<{ userId: string }>(getDb().prepare(`SELECT DISTINCT userId FROM ActivityEvent WHERE userId IN (${studentIds.map(() => "?").join(",")}) AND eventType = ? AND bookVersionId = ?`).all(...studentIds, eventType, bookVersionId));
   return rows.map((row) => row.userId);
 }
 
-function distinctParticipantCount(studentIds: string[], eventType: string): number {
-  return participants(studentIds, eventType).length;
+function distinctParticipantCount(studentIds: string[], eventType: string, bookVersionId: string): number {
+  return participants(studentIds, eventType, bookVersionId).length;
 }
 
-function averageEventProgress(studentIds: string[], prefix: "AUDIO" | "VIDEO"): number {
+function averageEventProgress(studentIds: string[], prefix: "AUDIO" | "VIDEO", bookVersionId: string): number {
   if (studentIds.length === 0) return 0;
   const rows = asRows<{ userId: string; nodeId: string | null; eventType: string; progress: number | null }>(
     getDb().prepare(`
       SELECT userId, nodeId, eventType, progress
       FROM ActivityEvent
       WHERE userId IN (${studentIds.map(() => "?").join(",")})
+        AND bookVersionId = ?
         AND eventType IN (?, ?)
-    `).all(...studentIds, `${prefix}_PROGRESS`, `${prefix}_COMPLETE`)
+    `).all(...studentIds, bookVersionId, `${prefix}_PROGRESS`, `${prefix}_COMPLETE`)
   );
   const maxByStudentNode = new Map<string, number>();
   for (const row of rows) {
@@ -732,9 +769,9 @@ function averageEventProgress(studentIds: string[], prefix: "AUDIO" | "VIDEO"): 
   return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0;
 }
 
-function countForStudents(table: string, studentIds: string[]): number {
+function countForStudents(table: string, studentIds: string[], bookVersionId: string): number {
   if (studentIds.length === 0) return 0;
-  return countWhere(table, `userId IN (${studentIds.map(() => "?").join(",")})`, studentIds);
+  return countWhere(table, `userId IN (${studentIds.map(() => "?").join(",")}) AND bookVersionId = ?`, [...studentIds, bookVersionId]);
 }
 
 function countWhere(table: string, where: string, params: (string | number)[]): number {

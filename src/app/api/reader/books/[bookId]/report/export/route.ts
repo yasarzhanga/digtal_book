@@ -1,4 +1,4 @@
-import { requireStudent } from "@/server/auth/guards";
+import { ensureBookReadable, requireStudent } from "@/server/auth/guards";
 import { errorResponse } from "@/server/http";
 import { buildPersonalReportSvg, buildPersonalReportWorkbook } from "@/server/services/p1";
 
@@ -10,6 +10,7 @@ export async function GET(request: Request, context: RouteContext): Promise<Resp
   try {
     const user = await requireStudent();
     const { bookId } = await context.params;
+    ensureBookReadable(user, bookId);
     const format = new URL(request.url).searchParams.get("format") ?? "xlsx";
     if (format === "svg") {
       return new Response(buildPersonalReportSvg(user.id, bookId), {

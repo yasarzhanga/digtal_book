@@ -1,5 +1,6 @@
 import fs from "node:fs";
-import { getAssetFile } from "@/server/services/assets";
+import { requireUser } from "@/server/auth/session";
+import { ensureAssetReadable, getAssetFile } from "@/server/services/assets";
 import { errorResponse } from "@/server/http";
 
 interface RouteContext {
@@ -8,7 +9,9 @@ interface RouteContext {
 
 export async function GET(request: Request, context: RouteContext): Promise<Response> {
   try {
+    const user = await requireUser();
     const { assetId } = await context.params;
+    ensureAssetReadable(assetId, user);
     const file = getAssetFile(assetId);
     const buffer = fs.readFileSync(file.absolutePath);
     const range = request.headers.get("range");

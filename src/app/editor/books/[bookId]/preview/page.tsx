@@ -1,4 +1,4 @@
-import { requireUser } from "@/server/auth/session";
+import { ensureBookOwner, requireEditor } from "@/server/auth/guards";
 import { getCurrentSnapshot } from "@/server/services/books";
 import { PreviewClient } from "./PreviewClient";
 
@@ -7,8 +7,9 @@ interface PageProps {
 }
 
 export default async function EditorPreviewPage({ params }: PageProps) {
-  await requireUser();
+  const user = await requireEditor();
   const { bookId } = await params;
+  ensureBookOwner(bookId, user.id);
   const snapshot = getCurrentSnapshot(bookId);
   return <PreviewClient snapshot={snapshot} bookId={bookId} />;
 }

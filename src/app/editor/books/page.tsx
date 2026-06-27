@@ -1,10 +1,10 @@
 import Link from "next/link";
-import { requireUser } from "@/server/auth/session";
-import { listBooks } from "@/server/services/books";
+import { requireEditor } from "@/server/auth/guards";
+import { listBooksForOwner } from "@/server/services/books";
 
 export default async function EditorBooksPage() {
-  await requireUser();
-  const books = listBooks();
+  const user = await requireEditor();
+  const books = listBooksForOwner(user.id);
   return (
     <main className="workspace-page">
       <section className="page-heading">

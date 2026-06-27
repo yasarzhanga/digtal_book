@@ -18,6 +18,7 @@
 - 第七阶段教学系统生产化已完成本轮闭环：课程/班级 CRUD、二维码入班链接、`/join` 入班页、地理位置签到、签到距离记录、资源学习明细和 XLSX 导出已接入教师端并进入 E2E。
 - 第八阶段云化和安全相关仅作为本地 Demo readiness：`proxy.ts` 安全头、租户 RBAC 服务、平台队列、SQLite 备份、对象存储本地适配、外部登录配置状态、PostgreSQL 迁移骨架和云化说明已进入测试；不声称为生产云服务。
 - 资源检索已补齐文件内容索引：DOCX/XLSX/TEXT/VTT 上传和种子会生成 `metadata.searchText`，资源中心和教材搜索可按文件正文命中；已修复 DOCX 导入刷新竞态和富媒体自动保存标记。
+- 权限与数据边界修复已完成：资产下载/预览/列表、教材版本读写、编辑/教师/阅读页面、学习事件、统计聚合、课程创建和 readiness 备份入口均已补统一守卫和负向测试。
 
 ## Beta 加固冲刺
 
@@ -72,15 +73,31 @@
 
 ## Beta 必跑命令
 
-- [x] `npm run db:reset`（2026-06-27 11:03 通过；`verify:demo` 内部再次通过）
-- [x] `npm run lint`（2026-06-27 11:22 通过）
-- [x] `npm run typecheck`（2026-06-27 11:22 通过）
-- [x] `npm run test`（2026-06-27 11:22 通过，31 passed）
-- [x] `npm run test:e2e`（2026-06-27 11:25 通过，5 passed）
-- [x] `npm run build`（2026-06-27 11:25 通过）
-- [x] `npm run verify:demo`（2026-06-27 11:25 通过；内部执行 reset/lint/typecheck/test/e2e/build 并检查三尺寸截图）
+- [x] `npm run db:reset`（2026-06-27 14:32 通过；`verify:demo` 内部再次通过）
+- [x] `npm run lint`（2026-06-27 14:32 通过；`verify:demo` 内部再次通过）
+- [x] `npm run typecheck`（2026-06-27 14:32 通过；`verify:demo` 内部再次通过）
+- [x] `npm run test`（2026-06-27 14:31 通过，34 passed；`verify:demo` 内部再次通过）
+- [x] `npm run test:e2e`（2026-06-27 14:29 通过，6 passed；`verify:demo` 内部再次通过）
+- [x] `npm run build`（2026-06-27 14:31 通过；`verify:demo` 内部再次通过）
+- [x] `npm run verify:demo`（2026-06-27 14:37 通过；内部执行 reset/lint/typecheck/test/e2e/build 并检查三尺寸截图）
 
 ## 已知限制
 
 - 远端 PostgreSQL 运行时连接池、S3-compatible SDK、短信登录和微信登录需要真实部署环境、域名和密钥；当前仓库提供可测试的本地适配、配置探测、迁移骨架和文档，不伪装外部服务。
 - PDF 正文暂未做完整 OCR/文本抽取；PDF 可预览、可打开追踪，搜索主要覆盖标题、文件名和资源描述。
+
+## 权限与数据边界修复
+
+启动时间：2026-06-27
+
+目标：基于 `AUDIT_REPORT.md` 只修高风险和中高风险访问控制问题，不新增业务能力，不做 UI 美化。
+
+| 审计修复项 | 状态 | 本轮修复证据 | 验证证据 | 剩余风险 |
+|---|---|---|---|---|
+| 1. 保护资产文件下载、预览、列表和引用接口 | 完成 | `ensureAssetReadable`、`listReadableAssets`、`getVisibleAssetReferences` 已接入资产 API | `npm run test`；`npm run test:e2e` 负向覆盖未登录、学生越权和他人录音资产 | 无 |
+| 2. 建立教材可读、版本可读/可写、班级教材访问守卫 | 完成 | `ensureBookReadable`、`ensureBookVersionWritable`、`ensureClassroomBookAccess`、`ensureVersionNode` | `npm run test` 覆盖可读、旧版本写入和节点/章节越界 | 无 |
+| 3. 补齐编辑器、教师、reader 页面路由权限 | 完成 | 编辑器页面校验 owner，教师页面校验 classroom teacher，reader 页面校验可读教材/班级 | `npm run test:e2e` 覆盖学生访问编辑/教师页被拒绝 | 无 |
+| 4. 收紧敏感服务层读取函数或新增安全 wrapper | 完成 | `getEditorBookForOwner`、`listBooksForOwner`、安全资产 wrapper 和统计按课堂/版本过滤 | `npm run test`；`npm run verify:demo` | 无 |
+| 5. 防止学习统计污染和错误版本写入 | 完成 | `recordEventsForUser`、reader 写入接口校验当前发布版本和节点归属，班级统计按当前教材版本聚合 | `npm run test`；`npm run test:e2e` 覆盖错误版本和未入班事件写入被拒绝 | 无 |
+| 6. 课程创建 bookId 校验和 platform readiness 权限 | 完成 | `createCourseWithClassroom` 限 Demo 已发布教材；`POST /api/platform/readiness` 限编辑者 | `npm run test`；`npm run test:e2e` 覆盖教师备份被拒绝和非法教材建课失败 | Demo 仍是单本教材授权模型，不声明生产授权系统 |
+| 7. 负向测试和完整验证命令 | 完成 | 单元和 E2E 新增资产、页面、事件、版本、课程和 readiness 负向覆盖 | `npm run verify:demo` 于 2026-06-27 14:37 通过，内部执行 reset/lint/typecheck/test/e2e/build 并检查三尺寸截图 | 无 |

@@ -1,4 +1,5 @@
 import { requireUser } from "@/server/auth/session";
+import { ensureBookReadable } from "@/server/auth/guards";
 import { getReaderSnapshot } from "@/server/services/reader";
 import { errorResponse, ok } from "@/server/http";
 
@@ -8,8 +9,9 @@ interface RouteContext {
 
 export async function GET(_request: Request, context: RouteContext): Promise<Response> {
   try {
-    await requireUser();
+    const user = await requireUser();
     const { bookId } = await context.params;
+    ensureBookReadable(user, bookId);
     return ok({ snapshot: getReaderSnapshot(bookId) });
   } catch (error) {
     return errorResponse(error);
